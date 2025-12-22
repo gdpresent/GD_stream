@@ -156,7 +156,7 @@ with loading_container.container():
     status_text = st.empty()
     
     # Step 1: CLI 데이터 로딩
-    status_text.markdown("🌍 **OECD CLI 데이터 로딩 중...**")
+    status_text.markdown("🌍 **데이터 로딩 중...**")
     provider = load_provider(tuple(selected_countries), use_cache)
     progress_bar.progress(40)
     
@@ -264,7 +264,7 @@ for i, country in enumerate(selected_countries):
                     "1. First Value (Static)",
                     compare=False
                 )
-                st.plotly_chart(fig_c1, use_container_width=True)
+                st.plotly_chart(fig_c1, use_container_width=True, config={'displayModeBar': False})
             else:
                 st.info("Clock 1: 데이터 없음")
         
@@ -284,7 +284,7 @@ for i, country in enumerate(selected_countries):
                     lambda d: first_vals_map.get(d, {}).get('VELOCITY', np.nan))
                 
                 fig_c2 = plot_business_clock(pit_data, "2. PIT History (Realized)", compare=True)
-                st.plotly_chart(fig_c2, use_container_width=True)
+                st.plotly_chart(fig_c2, use_container_width=True, config={'displayModeBar': False})
             else:
                 st.info("Clock 2: 데이터 없음")
         
@@ -305,7 +305,7 @@ for i, country in enumerate(selected_countries):
                         lambda d: first_vals_map.get(d, {}).get('VELOCITY', np.nan))
                     
                     fig_c3 = plot_business_clock(current_fresh, "3. Current Snapshot", compare=True)
-                    st.plotly_chart(fig_c3, use_container_width=True)
+                    st.plotly_chart(fig_c3, use_container_width=True, config={'displayModeBar': False})
                 else:
                     st.info("Clock 3: 데이터 없음")
             else:
