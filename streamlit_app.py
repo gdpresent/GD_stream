@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """
 Market Regime Monitoring Dashboard
-Streamlit + Plotly 기반 웹 대시보드
+Streamlit + Plotly 기반 ???�?�보??
 
-GitHub 연동된 Streamlit Cloud에서 배포 가능
+GitHub ?�동??Streamlit Cloud?�서 배포 가??
 Main file path: streamlit_app.py (root)
 """
 import streamlit as st
@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 import sys
 from pathlib import Path
 
-# Streamlit Cloud 경로 설정 (로컬 패키지 인식용)
+# Streamlit Cloud 경로 ?�정 (로컬 ?�키지 ?�식??
 ROOT_DIR = Path(__file__).parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
@@ -21,7 +21,7 @@ if str(ROOT_DIR) not in sys.path:
 # Plotly
 import plotly.graph_objects as go
 
-# 로컬 모듈 (패키지 경로 사용)
+# 로컬 모듈 (?�키지 경로 ?�용)
 from MarketRegimeMonitoring.regime_provider import RegimeProvider, COUNTRY_MAP, REGIME_SETTINGS, INDEX_TICKER_MAP, calculate_eci
 from utils.streamlit_utils import (
     disparity_df_v2,
@@ -37,7 +37,7 @@ from utils.streamlit_utils import (
 # =============================================================================
 st.set_page_config(
     page_title="Market Regime Dashboard",
-    page_icon="📊",
+    page_icon="?��",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -73,28 +73,28 @@ st.markdown("""
 # =============================================================================
 # Sidebar
 # =============================================================================
-st.sidebar.title("⚙️ 설정")
+st.sidebar.title("?�️ ?�정")
 
-# 국가 선택
+# �?? ?�택
 all_countries = list(COUNTRY_MAP.keys())
 default_countries = ['USA', 'Korea', 'Japan', 'China', 'Germany', 'France', 'UK', 'India', 'Brazil']
 selected_countries = st.sidebar.multiselect(
-    "📍 국가 선택",
+    "?�� �?? ?�택",
     options=all_countries,
     default=[c for c in default_countries if c in all_countries]
 )
 
 if not selected_countries:
-    st.warning("최소 1개 이상의 국가를 선택해주세요.")
+    st.warning("최소 1�??�상??�??�??�택?�주?�요.")
     st.stop()
 
-# 캐시 옵션
-use_cache = st.sidebar.checkbox("💾 캐시 사용", value=False, help="체크하면 오늘 날짜 기준 캐시 사용 (API 호출 감소)")
+# 캐시 ?�션
+use_cache = st.sidebar.checkbox("?�� 캐시 ?�용", value=False, help="체크?�면 ?�늘 ?�짜 기�? 캐시 ?�용 (API ?�출 감소)")
 
 # =============================================================================
 # Data Loading (Cached)
 # =============================================================================
-@st.cache_resource(ttl=3600)  # 1시간 캐시
+@st.cache_resource(ttl=3600)  # 1?�간 캐시
 def load_provider(countries: tuple, use_cache: bool) -> RegimeProvider:
     """RegimeProvider 로딩 (캐싱)"""
     provider = RegimeProvider(countries=list(countries), use_cache=use_cache)
@@ -105,7 +105,7 @@ def load_crisis_indices(countries: tuple) -> dict:
     """Crisis Index 계산 (캐싱)"""
     crisis_cache = {}
     
-    # USA: S&P500 + NASDAQ 평균
+    # USA: S&P500 + NASDAQ ?�균
     try:
         usa1_df = disparity_df_v2('^GSPC')
         usa2_df = disparity_df_v2('^IXIC')
@@ -116,7 +116,7 @@ def load_crisis_indices(countries: tuple) -> dict:
             usa_df['CX'] = usa_cx
             crisis_cache['USA'] = usa_df
             
-            # 타국: USA_CX 사용 (단순화)
+            # ?��? USA_CX ?�용 (?�순??
             for country in countries:
                 if country == 'USA' or country == 'G7':
                     continue
@@ -125,77 +125,77 @@ def load_crisis_indices(countries: tuple) -> dict:
                     try:
                         local_df = disparity_df_v2(ticker)
                         if not local_df.empty:
-                            # USA CX와 평균 대신 USA_CX만 사용 (단순화)
+                            # USA CX?� ?�균 ?�??USA_CX�??�용 (?�순??
                             local_df['CX'] = usa_cx.reindex(local_df.index).ffill()
                             crisis_cache[country] = local_df
                     except Exception as e:
-                        st.warning(f"Crisis Index 로딩 실패 ({country}): {e}")
+                        st.warning(f"Crisis Index 로딩 ?�패 ({country}): {e}")
             
-            # G7은 USA와 동일
+            # G7?� USA?� ?�일
             if 'G7' in countries:
                 crisis_cache['G7'] = usa_df
                 
     except Exception as e:
-        st.warning(f"Crisis Index 로딩 실패: {e}")
+        st.warning(f"Crisis Index 로딩 ?�패: {e}")
     
     return crisis_cache
 
-# 데이터 로딩 (스플래시 스타일)
+# ?�이??로딩 (?�플?�시 ?��???
 loading_container = st.empty()
 
 with loading_container.container():
     st.markdown("""
     <div style="text-align: center; padding: 3rem 1rem;">
-        <h1 style="font-size: 3rem; margin-bottom: 0.5rem;">�</h1>
+        <h1 style="font-size: 3rem; margin-bottom: 0.5rem;">�?/h1>
         <h2 style="color: #1f77b4; margin-bottom: 0.5rem;">Market Regime Dashboard</h2>
-        <p style="color: #666; margin-bottom: 2rem;">데이터를 불러오는 중입니다...</p>
+        <p style="color: #666; margin-bottom: 2rem;">?�이?��? 불러?�는 중입?�다...</p>
     </div>
     """, unsafe_allow_html=True)
     
     progress_bar = st.progress(0)
     status_text = st.empty()
     
-    # Step 1: CLI 데이터 로딩
-    status_text.markdown("🌍 **데이터 로딩 중...**")
+    # Step 1: CLI ?�이??로딩
+    status_text.markdown("?�� **?�이??로딩 �?..**")
     provider = load_provider(tuple(selected_countries), use_cache)
     progress_bar.progress(40)
     
     # Step 2: Crisis Index 계산
-    status_text.markdown("📈 **Crisis Index 계산 중...**")
+    status_text.markdown("?�� **Crisis Index 계산 �?..**")
     crisis_indices = load_crisis_indices(tuple(selected_countries))
     progress_bar.progress(60)
     
-    # Step 3: 데이터 연결
-    status_text.markdown("🔗 **데이터 연결 중...**")
+    # Step 3: ?�이???�결
+    status_text.markdown("?�� **?�이???�결 �?..**")
     for country, crisis_df in crisis_indices.items():
         provider.set_crisis_index(country, crisis_df)
     progress_bar.progress(80)
     
-    # Step 4: 가격 데이터 로딩
-    status_text.markdown("💹 **가격 데이터 로딩 중...**")
+    # Step 4: 가�??�이??로딩
+    status_text.markdown("?�� **가�??�이??로딩 �?..**")
     prices = provider._load_price_data()
     progress_bar.progress(100)
-    status_text.markdown("✅ **로딩 완료!**")
+    status_text.markdown("??**로딩 ?�료!**")
 
-# 로딩 완료 후 로딩 화면 제거
+# 로딩 ?�료 ??로딩 ?�면 ?�거
 loading_container.empty()
 
 # =============================================================================
 # Main Content
 # =============================================================================
-st.markdown('<div class="main-header">📊 Market Regime Dashboard</div>', unsafe_allow_html=True)
+st.markdown('<div class="main-header">?�� Market Regime Dashboard</div>', unsafe_allow_html=True)
 st.markdown("---")
 
-# 현재 국면 요약 테이블
-st.subheader("🌍 현재 국면 요약")
+# ?�재 �?�� ?�약 ?�이�?
+st.subheader("?�� ?�재 �?�� ?�약")
 summary_df = create_regime_summary_table(provider, selected_countries)
 
-# 색상 적용 함수
+# ?�상 ?�용 ?�수
 def color_regime(val):
     colors = {
-        '팽창': 'background-color: #2ca02c; color: white',
-        '회복': 'background-color: #ffce30; color: black',
-        '둔화': 'background-color: #ff7f0e; color: white',
+        '?�창': 'background-color: #2ca02c; color: white',
+        '?�복': 'background-color: #ffce30; color: black',
+        '?�화': 'background-color: #ff7f0e; color: white',
         '침체': 'background-color: #d62728; color: white',
         'Cash': 'background-color: #ffb347; color: black',
         'Half': 'background-color: #9467bd; color: white',
@@ -211,11 +211,11 @@ st.dataframe(styled_df, use_container_width=True, hide_index=True)
 
 st.markdown("---")
 
-# 국가별 상세 차트
-st.subheader("📈 국가별 상세 분석")
+# �??�??�세 차트
+st.subheader("?�� �??�??�세 분석")
 
-# 탭으로 국가 선택
-tabs = st.tabs([f"🏳️ {COUNTRY_MAP[c]['name']}" for c in selected_countries])
+# ??���?�?? ?�택
+tabs = st.tabs([f"?���?{COUNTRY_MAP[c]['name']}" for c in selected_countries])
 
 for i, country in enumerate(selected_countries):
     with tabs[i]:
@@ -223,14 +223,14 @@ for i, country in enumerate(selected_countries):
         precomputed = provider._precomputed_regimes.get(country)
         
         if precomputed is None or precomputed.empty:
-            st.warning(f"{country}: 데이터 없음")
+            st.warning(f"{country}: ?�이???�음")
             continue
         
         start_date = provider._effective_start.get(country, precomputed['trade_date'].min())
         crisis_data = crisis_indices.get(country)
         
-        # 1. 누적 수익률 차트
-        st.markdown("#### 📊 누적 수익률")
+        # 1. ?�적 ?�익�?차트
+        st.markdown("#### ?�� ?�적 ?�익�?)
         fig_returns = plot_cumulative_returns(
             precomputed=precomputed,
             prices=prices,
@@ -241,8 +241,8 @@ for i, country in enumerate(selected_countries):
         )
         st.plotly_chart(fig_returns, use_container_width=True)
         
-        # 2. 국면 스트립 차트
-        st.markdown("#### 📅 국면 타임라인")
+        # 2. �?�� ?�트�?차트
+        st.markdown("#### ?�� �?�� ?�?�라??)
         fig_strip = plot_regime_strip(
             precomputed=precomputed,
             crisis_data=crisis_data,
@@ -251,7 +251,7 @@ for i, country in enumerate(selected_countries):
         st.plotly_chart(fig_strip, use_container_width=True)
         
         # 3. Business Cycle Clocks (Plotly 개선 버전)
-        st.markdown("#### 🕐 Business Cycle Clock")
+        st.markdown("#### ?�� Business Cycle Clock")
         
         col1, col2, col3 = st.columns(3)
         
@@ -266,27 +266,27 @@ for i, country in enumerate(selected_countries):
                 )
                 st.plotly_chart(fig_c1, use_container_width=True, config={'displayModeBar': False})
             else:
-                st.info("Clock 1: 데이터 없음")
+                st.info("Clock 1: ?�이???�음")
         
         # Clock 2: PIT History
         with col2:
             if precomputed is not None and not precomputed.empty:
-                pit_data = precomputed[['data_month', 'placement', 'velocity', 'exp2_regime', 'trade_date']].copy()
+                pit_data = precomputed[['data_month', 'LEVEL', 'DIRECTION', 'exp2_regime', 'trade_date']].copy()
                 pit_data = pit_data.rename(columns={'data_month': 'date', 'exp2_regime': 'ECI', 
-                                                     'placement': 'PLACEMENT', 'velocity': 'VELOCITY'})
+                                                     'LEVEL': 'LEVEL', 'DIRECTION': 'DIRECTION'})
                 pit_data = pit_data.drop_duplicates(subset=['date'], keep='last').tail(24)
                 
-                # First values 추가
+                # First values 추�?
                 first_vals_map = provider._first_vals_map.get(country, {})
-                pit_data['PLACEMENT_first'] = pit_data['date'].map(
-                    lambda d: first_vals_map.get(d, {}).get('PLACEMENT', np.nan))
-                pit_data['VELOCITY_first'] = pit_data['date'].map(
-                    lambda d: first_vals_map.get(d, {}).get('VELOCITY', np.nan))
+                pit_data['LEVEL_first'] = pit_data['date'].map(
+                    lambda d: first_vals_map.get(d, {}).get('LEVEL', np.nan))
+                pit_data['DIRECTION_first'] = pit_data['date'].map(
+                    lambda d: first_vals_map.get(d, {}).get('DIRECTION', np.nan))
                 
                 fig_c2 = plot_business_clock(pit_data, "2. PIT History (Realized)", compare=True)
                 st.plotly_chart(fig_c2, use_container_width=True, config={'displayModeBar': False})
             else:
-                st.info("Clock 2: 데이터 없음")
+                st.info("Clock 2: ?�이???�음")
         
         # Clock 3: Current Snapshot
         with col3:
@@ -299,21 +299,21 @@ for i, country in enumerate(selected_countries):
                     current_fresh = current_fresh.tail(24).copy()
                     
                     first_vals_map = provider._first_vals_map.get(country, {})
-                    current_fresh['PLACEMENT_first'] = current_fresh['date'].map(
-                        lambda d: first_vals_map.get(d, {}).get('PLACEMENT', np.nan))
-                    current_fresh['VELOCITY_first'] = current_fresh['date'].map(
-                        lambda d: first_vals_map.get(d, {}).get('VELOCITY', np.nan))
+                    current_fresh['LEVEL_first'] = current_fresh['date'].map(
+                        lambda d: first_vals_map.get(d, {}).get('LEVEL', np.nan))
+                    current_fresh['DIRECTION_first'] = current_fresh['date'].map(
+                        lambda d: first_vals_map.get(d, {}).get('DIRECTION', np.nan))
                     
                     fig_c3 = plot_business_clock(current_fresh, "3. Current Snapshot", compare=True)
                     st.plotly_chart(fig_c3, use_container_width=True, config={'displayModeBar': False})
                 else:
-                    st.info("Clock 3: 데이터 없음")
+                    st.info("Clock 3: ?�이???�음")
             else:
-                st.info("Clock 3: 데이터 없음")
+                st.info("Clock 3: ?�이???�음")
         
-        # 4. 상세 데이터 테이블 (접기)
-        with st.expander("📋 상세 데이터 보기"):
-            # 발표일 정보 포함 컬럼 선택
+        # 4. ?�세 ?�이???�이�?(?�기)
+        with st.expander("?�� ?�세 ?�이??보기"):
+            # 발표???�보 ?�함 컬럼 ?�택
             cols_to_show = ['trade_date', 'realtime_start', 'data_month', 
                            'exp1_regime', 'exp2_regime', 'exp3_regime',
                            'expected_next_data', 'expected_next_release', 'is_missing']
@@ -321,7 +321,7 @@ for i, country in enumerate(selected_countries):
             available_cols = [c for c in cols_to_show if c in precomputed.columns]
             display_df = precomputed[available_cols].tail(24).copy()
             
-            # 날짜 포맷팅
+            # ?�짜 ?�맷??
             if 'trade_date' in display_df.columns:
                 display_df['trade_date'] = display_df['trade_date'].dt.strftime('%Y-%m-%d')
             if 'realtime_start' in display_df.columns:
@@ -333,16 +333,16 @@ for i, country in enumerate(selected_countries):
             if 'expected_next_release' in display_df.columns:
                 display_df['expected_next_release'] = pd.to_datetime(display_df['expected_next_release']).dt.strftime('%Y-%m-%d')
             
-            # 컬럼명 한글화
+            # 컬럼�??��???
             col_rename = {
-                'trade_date': '거래일',
-                'realtime_start': '발표일',
-                'data_month': '데이터월',
+                'trade_date': '거래??,
+                'realtime_start': '발표??,
+                'data_month': '?�이?�월',
                 'exp1_regime': 'Exp1',
                 'exp2_regime': 'Exp2',
                 'exp3_regime': 'Exp3',
-                'expected_next_data': '다음예상데이터',
-                'expected_next_release': '다음예상발표일',
+                'expected_next_data': '?�음?�상?�이??,
+                'expected_next_release': '?�음?�상발표??,
                 'is_missing': 'Skipped'
             }
             display_df = display_df.rename(columns={k: v for k, v in col_rename.items() if k in display_df.columns})
@@ -356,7 +356,7 @@ st.markdown("---")
 st.markdown(
     """
     <div style="text-align: center; color: gray; font-size: 0.8rem;">
-        📊 Market Regime Monitoring Dashboard | 
+        ?�� Market Regime Monitoring Dashboard | 
         Data Source: FRED, Yahoo Finance | 
         Last Updated: {}
     </div>
