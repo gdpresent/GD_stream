@@ -137,15 +137,14 @@ def load_crisis_indices(countries: tuple) -> dict:
 with st.status("📡 데이터 로딩 중...", expanded=True) as status:
     progress_bar = st.progress(0, text="초기화 중...")
     
-    # Step 1: CLI 데이터 로딩 (40%)
-    st.write("🌍 **Step 1/4**: 국가별 OECD CLI 데이터 로딩...")
+    # Step 1: 데이터 로딩 (40%)
+    st.write("🌍 **Step 1/4**: 국가별 데이터 로딩...")
     st.caption(f"선택된 국가: {', '.join(selected_countries)}")
     provider = load_provider(tuple(selected_countries), use_cache)
-    progress_bar.progress(40, text="CLI 데이터 로딩 완료")
+    progress_bar.progress(40, text="데이터 로딩 완료")
     
     # Step 2: Crisis Index 계산 (60%)
     st.write("📈 **Step 2/4**: Crisis Index 계산...")
-    st.caption("S&P500, NASDAQ 등 주가지수 기반 위기지표 산출")
     crisis_indices = load_crisis_indices(tuple(selected_countries))
     progress_bar.progress(60, text="Crisis Index 계산 완료")
     
@@ -341,7 +340,7 @@ st.markdown(
     """
     <div style="text-align: center; color: gray; font-size: 0.8rem;">
         📊 Market Regime Monitoring Dashboard | 
-        Data Source: FRED (OECD CLI), Yahoo Finance | 
+        Data Source: FRED, Yahoo Finance | 
         Last Updated: {}
     </div>
     """.format(datetime.now().strftime('%Y-%m-%d %H:%M')),
