@@ -10,6 +10,13 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
+import sys
+from pathlib import Path
+
+# Streamlit Cloud 경로 설정 (로컬 패키지 인식용)
+ROOT_DIR = Path(__file__).parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 
 # Plotly
 import plotly.graph_objects as go
