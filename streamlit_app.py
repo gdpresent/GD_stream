@@ -82,7 +82,7 @@ if not selected_countries:
     st.stop()
 
 # 캐시 옵션
-use_cache = st.sidebar.checkbox("💾 캐시 사용", value=True, help="오늘 날짜 기준 캐시 사용 (API 호출 감소)")
+use_cache = st.sidebar.checkbox("💾 캐시 사용", value=False, help="체크하면 오늘 날짜 기준 캐시 사용 (API 호출 감소)")
 
 # =============================================================================
 # Data Loading (Cached)
