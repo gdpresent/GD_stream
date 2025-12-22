@@ -140,35 +140,45 @@ def load_crisis_indices(countries: tuple) -> dict:
     
     return crisis_cache
 
-# 데이터 로딩
-with st.status("📡 데이터 로딩 중...", expanded=True) as status:
-    progress_bar = st.progress(0, text="초기화 중...")
+# 데이터 로딩 (스플래시 스타일)
+loading_container = st.empty()
+
+with loading_container.container():
+    st.markdown("""
+    <div style="text-align: center; padding: 3rem 1rem;">
+        <h1 style="font-size: 3rem; margin-bottom: 0.5rem;">�</h1>
+        <h2 style="color: #1f77b4; margin-bottom: 0.5rem;">Market Regime Dashboard</h2>
+        <p style="color: #666; margin-bottom: 2rem;">데이터를 불러오는 중입니다...</p>
+    </div>
+    """, unsafe_allow_html=True)
     
-    # Step 1: 데이터 로딩 (40%)
-    st.write("🌍 **Step 1/4**: 국가별 데이터 로딩...")
-    st.caption(f"선택된 국가: {', '.join(selected_countries)}")
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    # Step 1: CLI 데이터 로딩
+    status_text.markdown("🌍 **OECD CLI 데이터 로딩 중...**")
     provider = load_provider(tuple(selected_countries), use_cache)
-    progress_bar.progress(40, text="데이터 로딩 완료")
+    progress_bar.progress(40)
     
-    # Step 2: Crisis Index 계산 (60%)
-    st.write("📈 **Step 2/4**: Crisis Index 계산...")
+    # Step 2: Crisis Index 계산
+    status_text.markdown("📈 **Crisis Index 계산 중...**")
     crisis_indices = load_crisis_indices(tuple(selected_countries))
-    progress_bar.progress(60, text="Crisis Index 계산 완료")
+    progress_bar.progress(60)
     
-    # Step 3: 데이터 연결 (80%)
-    st.write("🔗 **Step 3/4**: Crisis Index 연결...")
+    # Step 3: 데이터 연결
+    status_text.markdown("🔗 **데이터 연결 중...**")
     for country, crisis_df in crisis_indices.items():
         provider.set_crisis_index(country, crisis_df)
-    progress_bar.progress(80, text="데이터 연결 완료")
+    progress_bar.progress(80)
     
-    # Step 4: 가격 데이터 로딩 (100%)
-    st.write("💹 **Step 4/4**: 가격 데이터 로딩...")
-    st.caption("Yahoo Finance에서 주가 데이터 수집")
+    # Step 4: 가격 데이터 로딩
+    status_text.markdown("💹 **가격 데이터 로딩 중...**")
     prices = provider._load_price_data()
-    progress_bar.progress(100, text="모든 데이터 로딩 완료!")
-    
-    # 완료 상태로 변경
-    status.update(label="✅ 데이터 로딩 완료!", state="complete", expanded=False)
+    progress_bar.progress(100)
+    status_text.markdown("✅ **로딩 완료!**")
+
+# 로딩 완료 후 로딩 화면 제거
+loading_container.empty()
 
 # =============================================================================
 # Main Content
