@@ -372,9 +372,21 @@ def plot_regime_strip(
     
     df_timeline = pd.DataFrame(timeline_data)
     
-    # Color 매핑
-    color_map = dict(zip(df_timeline['Regime'].unique(), 
-                         df_timeline.groupby('Regime')['Color'].first().values))
+    # Color 매핑 - REGIME_COLORS 직접 사용 + Crisis-Index 색상 추가
+    color_map = {
+        '팽창': '#2ca02c',      # 초록
+        '회복': '#ffce30',      # 노랑
+        '둔화': '#ff7f0e',      # 주황
+        '침체': '#d62728',      # 빨강
+        'Cash': '#ffb347',     # 연주황
+        'Half': '#9467bd',     # 보라
+        'Skipped': '#f0f0f0',  # 연회색
+        'Buy': '#2ca02c',      # 초록
+        'Sell': '#d62728',     # 빨강
+        'Weak Sell': '#ff6666', # 연빨강
+        'Mixed': '#ffcc66',    # 연주황
+        'Unknown': '#cccccc'   # 회색
+    }
     
     fig = px.timeline(
         df_timeline, 
