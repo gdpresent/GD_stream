@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-Streamlit ?�?�보?�용 ?�틸리티
-- Crisis Index 계산 (disparity_df_v2 ?�팅)
-- Plotly 차트 ?�성 ?�수??
+Streamlit 대시보드용 유틸리티
+- Crisis Index 계산 (disparity_df_v2 포팅)
+- Plotly 차트 생성 함수들
 """
 import pandas as pd
 import numpy as np
@@ -12,10 +12,10 @@ from plotly.subplots import make_subplots
 from typing import Optional, Dict, List
 
 # =============================================================================
-# Crisis Index 계산 (GD_utils.get_data.disparity_df_v2 ?�팅)
+# Crisis Index 계산 (GD_utils.get_data.disparity_df_v2 포팅)
 # =============================================================================
 def get_data_yahoo_close(ticker: str, start: str = "2000-01-01") -> pd.DataFrame:
-    """Yahoo Finance?�서 종�? ?�이???�운로드"""
+    """Yahoo Finance에서 종가 데이터 다운로드"""
     try:
         data = yf.download(ticker, start=start, progress=False, auto_adjust=True)
         if data.empty:
@@ -23,18 +23,18 @@ def get_data_yahoo_close(ticker: str, start: str = "2000-01-01") -> pd.DataFrame
         
         # MultiIndex 처리
         if isinstance(data.columns, pd.MultiIndex):
-            data = data.xs('Close', level=0, axis=1) if 'Close' in data.columns.get_level_values(0) else data
+            data = data.xs('Close', Level=0, axis=1) if 'Close' in data.columns.get_Level_values(0) else data
         
-        # Series??경우 DataFrame?�로 변??
+        # Series인 경우 DataFrame으로 변환
         if isinstance(data, pd.Series):
             data = data.to_frame(name=ticker)
         elif 'Close' in data.columns:
             data = data[['Close']].rename(columns={'Close': ticker})
         else:
-            # �?번째 컬럼 ?�용
+            # 첫 번째 컬럼 사용
             data = data.iloc[:, 0].to_frame(name=ticker)
         
-        # timezone ?�거
+        # timezone 제거
         if data.index.tz is not None:
             data.index = data.index.tz_localize(None)
         
@@ -49,10 +49,10 @@ def disparity_df_v2(ticker: str, n: int = 120, l: int = 94, u: int = 100) -> pd.
     Crisis Index 계산
     
     Args:
-        ticker: Yahoo Finance ?�커
-        n: EMA ?�도??(기본 120??
-        l: ?�단 ?�계�?(기본 94)
-        u: ?�단 ?�계�?(기본 100)
+        ticker: Yahoo Finance 티커
+        n: EMA 윈도우 (기본 120일)
+        l: 하단 임계값 (기본 94)
+        u: 상단 임계값 (기본 100)
     
     Returns:
         DataFrame with columns: [ticker, ema, disparity, cut, CX, ...]
@@ -69,32 +69,32 @@ def disparity_df_v2(ticker: str, n: int = 120, l: int = 94, u: int = 100) -> pd.
     # Disparity = (Close / EMA) * 100
     df['disparity'] = df[col_name] / df['ema'] * u
     
-    # Buy/Sell ?�호
+    # Buy/Sell 신호
     df['cut'] = np.nan
     
-    # Sell: disparity가 l ?�래�??�락
+    # Sell: disparity가 l 아래로 하락
     sell_mask = (df['disparity'].shift(1) >= l) & (df['disparity'] < l)
     df.loc[sell_mask, 'cut'] = 'sell'
     
-    # Buy: disparity가 u ?�로 ?�승
+    # Buy: disparity가 u 위로 상승
     buy_mask = (df['disparity'].shift(1) <= u) & (df['disparity'] > u)
     df.loc[buy_mask, 'cut'] = 'buy'
     
-    # Sell 그룹 ?�덱??
+    # Sell 그룹 인덱스
     df['sell'] = np.nan
     df.loc[sell_mask, 'sell'] = range(sell_mask.sum())
     df['sell'] = df['sell'].ffill()
     
-    # BarIndex 계산 (�?sell 그룹 ?�에?�의 ?�덱??
+    # BarIndex 계산 (각 sell 그룹 내에서의 인덱스)
     def fill_bar_index(group):
         return pd.Series(range(len(group)), index=group.index)
     
     if df['sell'].notna().any():
-        df['BarIndex'] = df.groupby('sell').apply(fill_bar_index).reset_index(level=0, drop=True)
+        df['BarIndex'] = df.groupby('sell').apply(fill_bar_index).reset_index(Level=0, drop=True)
     else:
         df['BarIndex'] = range(len(df))
     
-    # 볼린?� 밴드 ?�단 계산
+    # 볼린저 밴드 하단 계산
     def ema_std(window):
         if len(window) < n:
             return np.nan
@@ -107,7 +107,7 @@ def disparity_df_v2(ticker: str, n: int = 120, l: int = 94, u: int = 100) -> pd.
     # cut_temp: forward fill
     df['cut_temp'] = df['cut'].ffill()
     
-    # 추�? Buy 조건: sell ?�태?�서 반등 ??
+    # 추가 Buy 조건: sell 상태에서 반등 시
     recovery_buy_mask = (
         (df['cut_temp'] == 'sell') &
         (df['disparity'] > l) &
@@ -124,18 +124,18 @@ def disparity_df_v2(ticker: str, n: int = 120, l: int = 94, u: int = 100) -> pd.
     df['CX'] = np.nan
     df.loc[df['cut'] == 'buy', 'CX'] = 1
     df.loc[df['cut'] == 'sell', 'CX'] = 0
-    df['CX'] = df['CX'].ffill().fillna(1)  # 기본�?1 (buy)
+    df['CX'] = df['CX'].ffill().fillna(1)  # 기본값 1 (buy)
     
     return df
 
 
 # =============================================================================
-# Plotly 차트 ?�성 ?�수??
+# Plotly 차트 생성 함수들
 # =============================================================================
 REGIME_COLORS = {
-    '?�창': '#2ca02c',
-    '?�복': '#ffce30',
-    '?�화': '#ff7f0e',
+    '팽창': '#2ca02c',
+    '회복': '#ffce30',
+    '둔화': '#ff7f0e',
     '침체': '#d62728',
     'Cash': '#ffb347',
     'Half': '#9467bd',
@@ -143,9 +143,9 @@ REGIME_COLORS = {
 }
 
 REGIME_LABELS = {
-    '?�창': 'Expansion',
-    '?�복': 'Recovery', 
-    '?�화': 'Slowdown',
+    '팽창': 'Expansion',
+    '회복': 'Recovery', 
+    '둔화': 'Slowdown',
     '침체': 'Contraction',
     'Cash': 'Cash',
     'Half': 'Half',
@@ -162,15 +162,15 @@ def plot_cumulative_returns(
     crisis_data: Optional[pd.DataFrame] = None
 ) -> go.Figure:
     """
-    ?�적 ?�익�?Plotly 차트
+    누적 수익률 Plotly 차트
     
     Args:
-        precomputed: RegimeProvider??_precomputed_regimes
-        prices: 가�??�이??
-        ticker: ETF ?�커
-        country_name: �?? ?�름
-        start_date: ?�작??
-        crisis_data: Crisis Index ?�이??(optional)
+        precomputed: RegimeProvider의 _precomputed_regimes
+        prices: 가격 데이터
+        ticker: ETF 티커
+        country_name: 국가 이름
+        start_date: 시작일
+        crisis_data: Crisis Index 데이터 (optional)
     
     Returns:
         Plotly Figure
@@ -178,20 +178,20 @@ def plot_cumulative_returns(
     fig = make_subplots(specs=[[{"secondary_y": True}]])
     
     if prices.empty or ticker not in prices.columns:
-        fig.update_layout(title=f"[{country_name}] ?�이???�음")
+        fig.update_layout(title=f"[{country_name}] 데이터 없음")
         return fig
     
-    # 벤치마크 ?�익�?
+    # 벤치마크 수익률
     bench = prices[ticker].pct_change().fillna(0)
     bench = bench[bench.index >= start_date]
     if bench.empty:
-        fig.update_layout(title=f"[{country_name}] ?�이???�음")
+        fig.update_layout(title=f"[{country_name}] 데이터 없음")
         return fig
     
     b_cum = (1 + bench).cumprod()
     b_cum = b_cum / b_cum.iloc[0]
     
-    # 벤치마크 ?�인
+    # 벤치마크 라인
     fig.add_trace(
         go.Scatter(
             x=b_cum.index, y=b_cum.values,
@@ -202,12 +202,12 @@ def plot_cumulative_returns(
         secondary_y=False
     )
     
-    # Exp1, Exp2, Exp3 ?�략 ?�익�?
+    # Exp1, Exp2, Exp3 전략 수익률
     colors = {'exp1': '#1f77b4', 'exp2': '#2ca02c', 'exp3': '#d62728'}
     labels = {'exp1': 'Exp1 (First)', 'exp2': 'Exp2 (Fresh)', 'exp3': 'Exp3 (Smart)'}
     
     regime_weights = {
-        '?�창': 2.0, '?�복': 1.0, '?�화': 0.5, '침체': 0.0,
+        '팽창': 2.0, '회복': 1.0, '둔화': 0.5, '침체': 0.0,
         'Cash': 0.0, 'Half': 1.0, 'Skipped': 0.0
     }
     
@@ -236,12 +236,12 @@ def plot_cumulative_returns(
             secondary_y=False
         )
     
-    # Crisis-Index ?�영 �?Disparity ?�인
+    # Crisis-Index 음영 및 Disparity 라인
     if crisis_data is not None and not crisis_data.empty and 'CX' in crisis_data.columns:
         crisis_sub = crisis_data[crisis_data.index >= start_date].copy()
         
         if not crisis_sub.empty:
-            # CX < 1 구간??빨간 ?�영
+            # CX < 1 구간에 빨간 음영
             crisis_sub['cx_grp'] = (crisis_sub['CX'] != crisis_sub['CX'].shift()).cumsum()
             
             for grp_id, grp_data in crisis_sub.groupby('cx_grp'):
@@ -254,7 +254,7 @@ def plot_cumulative_returns(
                         layer='below', line_width=0
                     )
             
-            # Disparity ?�인 (?�측 Y�?
+            # Disparity 라인 (우측 Y축)
             if 'disparity' in crisis_sub.columns:
                 disp = crisis_sub['disparity'].dropna()
                 if not disp.empty:
@@ -269,9 +269,9 @@ def plot_cumulative_returns(
                         secondary_y=True
                     )
     
-    # ?�이?�웃
+    # 레이아웃
     fig.update_layout(
-        title=f"[{country_name}] ?�적 ?�익�?,
+        title=f"[{country_name}] 누적 수익률",
         xaxis_title="Date",
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         hovermode='x unified',
@@ -289,12 +289,12 @@ def plot_regime_strip(
     start_date: Optional[pd.Timestamp] = None
 ) -> go.Figure:
     """
-    �?�� ?�트�?차트 (Timeline ?��???
+    국면 스트립 차트 (Timeline 스타일)
     
     Args:
-        precomputed: RegimeProvider??_precomputed_regimes
-        crisis_data: Crisis Index ?�이??(optional)
-        start_date: ?�작??(optional)
+        precomputed: RegimeProvider의 _precomputed_regimes
+        crisis_data: Crisis Index 데이터 (optional)
+        start_date: 시작일 (optional)
     
     Returns:
         Plotly Figure
@@ -303,7 +303,7 @@ def plot_regime_strip(
     
     timeline_data = []
     
-    # Exp1, Exp2, Exp3 ?�트�?
+    # Exp1, Exp2, Exp3 스트립
     for exp_col in ['exp1_regime', 'exp2_regime', 'exp3_regime']:
         if exp_col not in precomputed.columns:
             continue
@@ -326,7 +326,7 @@ def plot_regime_strip(
                 'Color': REGIME_COLORS.get(regime, '#cccccc')
             })
     
-    # Crisis-Index ?�트�?
+    # Crisis-Index 스트립
     if crisis_data is not None and not crisis_data.empty and 'CX' in crisis_data.columns:
         crisis_sub = crisis_data.copy()
         if start_date is not None:
@@ -340,7 +340,7 @@ def plot_regime_strip(
                 start = grp_data.index[0]
                 end = grp_data.index[-1]
                 
-                # CX 값에 ?�른 ?�상
+                # CX 값에 따른 색상
                 if pd.isna(cx_val):
                     color = '#cccccc'
                     regime = 'Unknown'
@@ -367,25 +367,25 @@ def plot_regime_strip(
     
     if not timeline_data:
         fig = go.Figure()
-        fig.update_layout(title="�?�� ?�트�?차트 - ?�이???�음", height=200)
+        fig.update_layout(title="국면 스트립 차트 - 데이터 없음", height=200)
         return fig
     
     df_timeline = pd.DataFrame(timeline_data)
     
-    # Color 매핑 - REGIME_COLORS 직접 ?�용 + Crisis-Index ?�상 추�?
+    # Color 매핑 - REGIME_COLORS 직접 사용 + Crisis-Index 색상 추가
     color_map = {
-        '?�창': '#2ca02c',      # 초록
-        '?�복': '#ffce30',      # ?�랑
-        '?�화': '#ff7f0e',      # 주황
+        '팽창': '#2ca02c',      # 초록
+        '회복': '#ffce30',      # 노랑
+        '둔화': '#ff7f0e',      # 주황
         '침체': '#d62728',      # 빨강
-        'Cash': '#ffb347',     # ?�주??
+        'Cash': '#ffb347',     # 연주황
         'Half': '#9467bd',     # 보라
-        'Skipped': '#f0f0f0',  # ?�회??
+        'Skipped': '#f0f0f0',  # 연회색
         'Buy': '#2ca02c',      # 초록
         'Sell': '#d62728',     # 빨강
-        'Weak Sell': '#ff6666', # ?�빨�?
-        'Mixed': '#ffcc66',    # ?�주??
-        'Unknown': '#cccccc'   # ?�색
+        'Weak Sell': '#ff6666', # 연빨강
+        'Mixed': '#ffcc66',    # 연주황
+        'Unknown': '#cccccc'   # 회색
     }
     
     fig = px.timeline(
@@ -399,7 +399,7 @@ def plot_regime_strip(
     )
     
     fig.update_layout(
-        title="�?�� ?�트�?차트",
+        title="국면 스트립 차트",
         xaxis_title="Date",
         yaxis_title="",
         height=250,
@@ -417,12 +417,12 @@ def plot_business_clock(
     compare: bool = False
 ) -> go.Figure:
     """
-    Business Cycle Clock (4분면 차트) - Bokeh ?��???개선 버전
+    Business Cycle Clock (4분면 차트) - Bokeh 스타일 개선 버전
     
     Args:
-        df: LEVEL, DIRECTION, ECI 컬럼???�는 DataFrame
-        title: 차트 ?�목
-        compare: True�?first vs fresh ?�살???�시
+        df: Level, Momentum, ECI 컬럼이 있는 DataFrame
+        title: 차트 제목
+        compare: True면 first vs fresh 화살표 표시
     
     Returns:
         Plotly Figure
@@ -433,24 +433,24 @@ def plot_business_clock(
         fig.update_layout(title=title, height=380, width=380)
         return fig
     
-    # �?범위 ?�적 계산 (?�이?�에 맞게 ?�?�트?�게)
-    if 'LEVEL' in df.columns and 'DIRECTION' in df.columns:
-        df_valid = df.dropna(subset=['LEVEL', 'DIRECTION'])
+    # 축 범위 동적 계산 (데이터에 맞게 타이트하게)
+    if 'Level' in df.columns and 'Momentum' in df.columns:
+        df_valid = df.dropna(subset=['Level', 'Momentum'])
         if not df_valid.empty:
-            x_vals = df_valid['LEVEL'].values
-            y_vals = df_valid['DIRECTION'].values
+            x_vals = df_valid['Level'].values
+            y_vals = df_valid['Momentum'].values
             
-            if compare and 'LEVEL_first' in df_valid.columns:
-                x_first = df_valid['LEVEL_first'].dropna().values
-                y_first = df_valid['DIRECTION_first'].dropna().values
+            if compare and 'Level_first' in df_valid.columns:
+                x_first = df_valid['Level_first'].dropna().values
+                y_first = df_valid['Momentum_first'].dropna().values
                 if len(x_first) > 0:
                     x_vals = np.concatenate([x_vals, x_first])
                     y_vals = np.concatenate([y_vals, y_first])
             
-            # ?�이??범위??맞게 �??�정 (20% ?�딩)
+            # 데이터 범위에 맞게 축 설정 (20% 패딩)
             max_val = max(abs(x_vals).max(), abs(y_vals).max())
-            axis_range = max_val * 1.2  # 20% ?�딩
-            axis_range = max(axis_range, 0.5)  # 최소 0.5 (?�무 ?�으�??�됨)
+            axis_range = max_val * 1.2  # 20% 패딩
+            axis_range = max(axis_range, 0.5)  # 최소 0.5 (너무 작으면 안됨)
         else:
             axis_range = 2
     else:
@@ -458,61 +458,61 @@ def plot_business_clock(
     
     label_pos = axis_range * 0.7
     
-    # 4분면 배경 (??진한 ?�상)
-    # 1?�분�?(?�상): ?�창 - ?�색
+    # 4분면 배경 (더 진한 색상)
+    # 1사분면 (우상): 팽창 - 녹색
     fig.add_shape(type="rect", x0=0, x1=axis_range, y0=0, y1=axis_range,
                   fillcolor="rgba(44, 160, 44, 0.25)", line=dict(width=0), layer='below')
-    # 2?�분�?(좌상): ?�복 - ?�랑
+    # 2사분면 (좌상): 회복 - 노랑
     fig.add_shape(type="rect", x0=-axis_range, x1=0, y0=0, y1=axis_range,
                   fillcolor="rgba(255, 249, 196, 0.4)", line=dict(width=0), layer='below')
-    # 3?�분�?(좌하): 침체 - 빨강
+    # 3사분면 (좌하): 침체 - 빨강
     fig.add_shape(type="rect", x0=-axis_range, x1=0, y0=-axis_range, y1=0,
                   fillcolor="rgba(255, 230, 230, 0.4)", line=dict(width=0), layer='below')
-    # 4?�분�?(?�하): ?�화 - 주황
+    # 4사분면 (우하): 둔화 - 주황
     fig.add_shape(type="rect", x0=0, x1=axis_range, y0=-axis_range, y1=0,
                   fillcolor="rgba(255, 243, 224, 0.4)", line=dict(width=0), layer='below')
     
-    # �??�인
+    # 축 라인
     fig.add_hline(y=0, line_color="gray", line_width=1, line_dash="dot")
     fig.add_vline(x=0, line_color="gray", line_width=1, line_dash="dot")
     
-    # ?�이??준�?
-    if 'LEVEL' in df.columns and 'DIRECTION' in df.columns:
-        d = df.dropna(subset=['LEVEL', 'DIRECTION'])
-        x = d['LEVEL'].values
-        y = d['DIRECTION'].values
+    # 데이터 준비
+    if 'Level' in df.columns and 'Momentum' in df.columns:
+        d = df.dropna(subset=['Level', 'Momentum'])
+        x = d['Level'].values
+        y = d['Momentum'].values
         
-        # Compare 모드: First ?�인??(?�색 ??
-        if compare and 'LEVEL_first' in d.columns and 'DIRECTION_first' in d.columns:
-            valid_first = d.dropna(subset=['LEVEL_first', 'DIRECTION_first'])
+        # Compare 모드: First 포인트 (회색 점)
+        if compare and 'Level_first' in d.columns and 'Momentum_first' in d.columns:
+            valid_first = d.dropna(subset=['Level_first', 'Momentum_first'])
             if not valid_first.empty:
                 fig.add_trace(go.Scatter(
-                    x=valid_first['LEVEL_first'], 
-                    y=valid_first['DIRECTION_first'],
+                    x=valid_first['Level_first'], 
+                    y=valid_first['Momentum_first'],
                     mode='markers',
                     marker=dict(size=5, color='gray', opacity=0.5),
                     name='First Value',
                     hovertemplate='First<br>P: %{x:.2f}<br>V: %{y:.2f}<extra></extra>'
                 ))
                 
-                # ?�살?? First -> Fresh
+                # 화살표: First -> Fresh
                 for i in range(len(valid_first)):
                     row = valid_first.iloc[i]
-                    dist = np.sqrt((row['LEVEL'] - row['LEVEL_first'])**2 + 
-                                   (row['DIRECTION'] - row['DIRECTION_first'])**2)
+                    dist = np.sqrt((row['Level'] - row['Level_first'])**2 + 
+                                   (row['Momentum'] - row['Momentum_first'])**2)
                     if dist > 0.1:
                         fig.add_annotation(
-                            x=row['LEVEL'], y=row['DIRECTION'],
-                            ax=row['LEVEL_first'], ay=row['DIRECTION_first'],
+                            x=row['Level'], y=row['Momentum'],
+                            ax=row['Level_first'], ay=row['Momentum_first'],
                             xref='x', yref='y',
                             axref='x', ayref='y',
                             arrowhead=3, arrowsize=0.8, arrowwidth=1.5,
                             arrowcolor='rgba(220, 20, 60, 0.4)'
                         )
         
-        # 경로 ?�인 (그라?�이???�과 - �?�� 계열)
+        # 경로 라인 (그라데이션 효과 - 청색 계열)
         if len(x) > 1:
-            # ?�간???�른 ?�상 그라?�이??
+            # 시간에 따른 색상 그라데이션
             for i in range(len(x) - 1):
                 color_intensity = int(50 + (i / (len(x) - 1)) * 150)
                 color = f'rgb({50}, {50 + color_intensity//2}, {color_intensity + 100})'
@@ -524,7 +524,7 @@ def plot_business_clock(
                     hoverinfo='skip'
                 ))
         
-        # 경로 ?�인??(?�색 ??+ ?�이�??�두�?
+        # 경로 포인트 (흰색 원 + 네이비 테두리)
         dates = d['date'].dt.strftime('%Y-%m').tolist() if 'date' in d.columns else [f'{i}' for i in range(len(d))]
         regimes = d['ECI'].tolist() if 'ECI' in d.columns else ['N/A'] * len(d)
         
@@ -537,7 +537,7 @@ def plot_business_clock(
             hovertemplate='%{text}<br>P: %{x:.2f}<br>V: %{y:.2f}<extra></extra>'
         ))
         
-        # 최신 ?�인??강조 (빨간??
+        # 최신 포인트 강조 (빨간색)
         if len(x) > 0:
             fig.add_trace(go.Scatter(
                 x=[x[-1]], y=[y[-1]],
@@ -547,7 +547,7 @@ def plot_business_clock(
                 hovertemplate='<b>Latest</b><br>P: %{x:.2f}<br>V: %{y:.2f}<extra></extra>'
             ))
     
-    # 4분면 ?�벨
+    # 4분면 라벨
     fig.add_annotation(x=label_pos, y=label_pos, text="<b>Expansion</b>", 
                        showarrow=False, font=dict(size=12, color='green'), opacity=0.7)
     fig.add_annotation(x=-label_pos, y=label_pos, text="<b>Recovery</b>", 
@@ -557,14 +557,14 @@ def plot_business_clock(
     fig.add_annotation(x=label_pos, y=-label_pos, text="<b>Slowdown</b>", 
                        showarrow=False, font=dict(size=12, color='darkorange'), opacity=0.7)
     
-    # ?�이?�웃 (?�사각형 ?��?)
+    # 레이아웃 (정사각형 유지)
     fig.update_layout(
         title=dict(text=title, x=0.5, font=dict(size=14)),
         xaxis=dict(
             range=[-axis_range, axis_range], 
             zeroline=False, 
             showgrid=False,
-            title="LEVEL",
+            title="Level",
             scaleanchor="y",
             scaleratio=1
         ),
@@ -572,7 +572,7 @@ def plot_business_clock(
             range=[-axis_range, axis_range], 
             zeroline=False, 
             showgrid=False,
-            title="DIRECTION"
+            title="Momentum"
         ),
         height=380,
         margin=dict(l=50, r=50, t=50, b=50),
@@ -593,14 +593,14 @@ def plot_business_clock(
 
 def create_regime_summary_table(provider, countries: List[str]) -> pd.DataFrame:
     """
-    ?�재 �?�� ?�약 ?�이�??�성
+    현재 국면 요약 테이블 생성
     
     Args:
-        provider: RegimeProvider ?�스?�스
-        countries: �?? 리스??
+        provider: RegimeProvider 인스턴스
+        countries: 국가 리스트
     
     Returns:
-        ?�약 DataFrame
+        요약 DataFrame
     """
     rows = []
     for country in countries:
@@ -614,8 +614,8 @@ def create_regime_summary_table(provider, countries: List[str]) -> pd.DataFrame:
             'Exp2 (Fresh)': exp2['regime'] if exp2 else 'N/A',
             'Exp3 (Smart)': exp3['regime'] if exp3 else 'N/A',
             'Data Month': exp2['data_month'].strftime('%Y-%m') if exp2 and exp2.get('data_month') else 'N/A',
-            'LEVEL': f"{exp2['LEVEL']:.2f}" if exp2 and pd.notna(exp2.get('LEVEL')) else 'N/A',
-            'DIRECTION': f"{exp2['DIRECTION']:.2f}" if exp2 and pd.notna(exp2.get('DIRECTION')) else 'N/A'
+            'Level': f"{exp2['Level']:.2f}" if exp2 and pd.notna(exp2.get('Level')) else 'N/A',
+            'Momentum': f"{exp2['Momentum']:.2f}" if exp2 and pd.notna(exp2.get('Momentum')) else 'N/A'
         })
     
     return pd.DataFrame(rows)
