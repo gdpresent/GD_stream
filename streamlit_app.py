@@ -134,16 +134,35 @@ def load_crisis_indices(countries: tuple) -> dict:
     return crisis_cache
 
 # 데이터 로딩
-with st.spinner("📡 데이터 로딩 중..."):
-    provider = load_provider(tuple(selected_countries), use_cache)
-    crisis_indices = load_crisis_indices(tuple(selected_countries))
+with st.status("📡 데이터 로딩 중...", expanded=True) as status:
+    progress_bar = st.progress(0, text="초기화 중...")
     
-    # Crisis Index를 provider에 설정
+    # Step 1: CLI 데이터 로딩 (40%)
+    st.write("🌍 **Step 1/4**: 국가별 OECD CLI 데이터 로딩...")
+    st.caption(f"선택된 국가: {', '.join(selected_countries)}")
+    provider = load_provider(tuple(selected_countries), use_cache)
+    progress_bar.progress(40, text="CLI 데이터 로딩 완료")
+    
+    # Step 2: Crisis Index 계산 (60%)
+    st.write("📈 **Step 2/4**: Crisis Index 계산...")
+    st.caption("S&P500, NASDAQ 등 주가지수 기반 위기지표 산출")
+    crisis_indices = load_crisis_indices(tuple(selected_countries))
+    progress_bar.progress(60, text="Crisis Index 계산 완료")
+    
+    # Step 3: 데이터 연결 (80%)
+    st.write("🔗 **Step 3/4**: Crisis Index 연결...")
     for country, crisis_df in crisis_indices.items():
         provider.set_crisis_index(country, crisis_df)
+    progress_bar.progress(80, text="데이터 연결 완료")
     
-    # 가격 데이터 로딩
+    # Step 4: 가격 데이터 로딩 (100%)
+    st.write("💹 **Step 4/4**: 가격 데이터 로딩...")
+    st.caption("Yahoo Finance에서 주가 데이터 수집")
     prices = provider._load_price_data()
+    progress_bar.progress(100, text="모든 데이터 로딩 완료!")
+    
+    # 완료 상태로 변경
+    status.update(label="✅ 데이터 로딩 완료!", state="complete", expanded=False)
 
 # =============================================================================
 # Main Content
