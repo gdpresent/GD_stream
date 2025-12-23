@@ -137,10 +137,10 @@ with loading_container.container():
     import time
     start_time = time.time()
     
-    # Step 1: CLI 데이터 로딩 (국가별 진행 표시)
+    # Step 1: 데이터 로딩 (국가별 진행 표시)
     total_countries = len(selected_countries)
     
-    status_text.markdown("🌍 **FRED에서 CLI 데이터 로딩 중...**")
+    status_text.markdown("🌍 **FRED에서 데이터 로딩 중...**")
     
     for i, country in enumerate(selected_countries):
         elapsed = time.time() - start_time
