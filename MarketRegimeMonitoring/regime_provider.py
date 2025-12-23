@@ -960,10 +960,10 @@ class RegimeProvider:
             raw_prices = yf.download(tickers, start="1995-01-01", progress=False, auto_adjust=True)
             
             if isinstance(raw_prices.columns, pd.MultiIndex):
-                if 'Close' in raw_prices.columns.get_Level_values(0):
-                    raw_prices = raw_prices.xs('Close', Level=0, axis=1)
-                elif 'Close' in raw_prices.columns.get_Level_values(1):
-                    raw_prices = raw_prices.xs('Close', Level=1, axis=1)
+                if 'Close' in raw_prices.columns.get_level_values(0):
+                    raw_prices = raw_prices.xs('Close', level=0, axis=1)
+                elif 'Close' in raw_prices.columns.get_level_values(1):
+                    raw_prices = raw_prices.xs('Close', level=1, axis=1)
             
             if isinstance(raw_prices, pd.Series):
                 raw_prices = raw_prices.to_frame(name=tickers[0])
