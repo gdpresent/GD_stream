@@ -132,17 +132,44 @@ with loading_container.container():
     
     progress_bar = st.progress(0)
     status_text = st.empty()
+    detail_text = st.empty()
     
-    # Step 1: CLI 데이터 로딩
-    status_text.markdown("🌍 **데이터 로딩 중...**")
+    import time
+    start_time = time.time()
+    
+    # Step 1: CLI 데이터 로딩 (국가별 진행 표시)
+    total_countries = len(selected_countries)
+    
+    status_text.markdown("🌍 **FRED에서 CLI 데이터 로딩 중...**")
+    
+    for i, country in enumerate(selected_countries):
+        elapsed = time.time() - start_time
+        minutes = int(elapsed // 60)
+        seconds = int(elapsed % 60)
+        
+        detail_text.markdown(f"📍 `{country}` 로딩 중... ({i+1}/{total_countries}) - ⏱️ {minutes}분 {seconds}초 경과")
+        progress_bar.progress(int((i / total_countries) * 40))
+    
     provider = load_provider(tuple(selected_countries), use_cache)
     progress_bar.progress(50)
     
     # Step 2: 가격 데이터 로딩
-    status_text.markdown("💹 **가격 데이터 로딩 중...**")
+    elapsed = time.time() - start_time
+    minutes = int(elapsed // 60)
+    seconds = int(elapsed % 60)
+    
+    status_text.markdown("💹 **Yahoo Finance에서 가격 데이터 로딩 중...**")
+    detail_text.markdown(f"📊 주가 지수 데이터 수집 중... - ⏱️ {minutes}분 {seconds}초 경과")
+    
     prices = provider._load_price_data()
     progress_bar.progress(100)
-    status_text.markdown("✅ **로딩 완료!**")
+    
+    elapsed = time.time() - start_time
+    minutes = int(elapsed // 60)
+    seconds = int(elapsed % 60)
+    
+    status_text.markdown(f"✅ **로딩 완료!** (총 {minutes}분 {seconds}초)")
+    detail_text.empty()
 
 # 로딩 완료 후 로딩 화면 제거
 loading_container.empty()
