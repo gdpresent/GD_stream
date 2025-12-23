@@ -1080,7 +1080,7 @@ def get_index_returns() -> pd.DataFrame:
             print(f"[WARN] Failed to get {name}: {e}")
     
     if not all_data:
-        return pd.DataFrame()
+        return pd.DataFrame(), None
     
     # 2. 기준일 결정: S&P500 기준 가장 최근 종가가 있는 날짜
     if 'S&P 500' in all_data:
