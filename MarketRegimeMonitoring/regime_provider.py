@@ -513,10 +513,33 @@ class RegimeProvider:
             
             if should_log:
                 seen_event_months.add(event_month_key)
-                # 다음 미국 영업일 계산 (주말 + 휴일 제외)
-                next_day = get_next_us_business_day(r_date)
+                
+                # trade_date 결정: 실제 발표일이면 그 다음 영업일, 
+                # Skipped 체크 이벤트이면 해당 월 예상 발표일 기반으로 계산
+                if is_actual_release:
+                    # 실제 발표일 → 다음 미국 영업일
+                    trade_date = get_next_us_business_day(r_date)
+                else:
+                    # 체크 이벤트에서 Skipped 감지 → 월중순(예상 발표일) 기반으로 계산
+                    # 예상 발표일: 해당 월의 예상 발표일 (release_day_map 기반)
+                    expected_release_day_for_trade = release_day_map.get(
+                        m_date + pd.DateOffset(months=1), 
+                        release_day_map.get(m_date, 15)
+                    )
+                    expected_release_day_for_trade = min(expected_release_day_for_trade, 28)
+                    try:
+                        # 해당 월의 예상 발표일로 trade_date 설정
+                        trade_date = r_date.replace(day=expected_release_day_for_trade)
+                        # 주말이면 다음 영업일로
+                        while trade_date.weekday() > 4:
+                            trade_date += pd.Timedelta(days=1)
+                        trade_date = get_next_us_business_day(trade_date - pd.Timedelta(days=1))
+                    except ValueError:
+                        # 날짜 오류 시 fallback
+                        trade_date = get_next_us_business_day(r_date)
+                
                 logs.append({
-                    'trade_date': next_day,
+                    'trade_date': trade_date,
                     'realtime_start': r_date,
                     'data_month': m_date,
                     'is_missing': is_missing,
@@ -1354,33 +1377,9 @@ class RegimeProvider:
 
 
 if __name__ == '__main__':
-    provider = RegimeProvider(use_cache=False)
-    
-    # Crisis-Index 계산 (GD_utils가 있을 때만)
-    if gdu is not None:
-        # USA는 S&P500+NASDAQ 평균
-        USA1_df = gdu.get_data.disparity_df_v2('^GSPC')
-        USA2_df = gdu.get_data.disparity_df_v2('^IXIC')
-        USA_CX = USA1_df['CX'].add(USA2_df['CX']).div(2).dropna()
-        
-        # USA disparity는 S&P500 기준
-        USA_df = USA1_df.copy()
-        USA_df['CX'] = USA_CX
-        provider.set_crisis_index('USA', USA_df)
-        
-        # 타국: USA_CX 사용
-        for country in provider.loaded_countries:
-            if country == 'USA' or country == 'G7':
-                continue
-            ticker = INDEX_TICKER_MAP.get(country)
-            if ticker:
-                local_df = gdu.get_data.disparity_df_v2(ticker)
-                local_df['CX'] = USA_CX
-                provider.set_crisis_index(country, local_df)
+    provider = RegimeProvider(use_cache=True)
 
-        # G7은 USA와 동일하게
-        if 'G7' in provider.loaded_countries:
-            provider.set_crisis_index('G7', USA_df)
-    
     # 대시보드 생성 (Crisis-Index 포함)
     provider.generate_dashboard(open_browser=True)
+
+    # AA=provider._precomputed_regimes['Korea']
