@@ -355,6 +355,7 @@ try:
     if regime_data:
         regime_df = pd.DataFrame(regime_data)
         regime_df = regime_df.ffill().dropna(how='all')
+        score_df = regime_df.replace(SCORE_MAP)
         
         # Weight 계산
         w = calc_strategy_weight(regime_df, Univ, top_n_count, min_score)
@@ -541,12 +542,12 @@ try:
             except Exception as e:
                 st.warning(f"누적수익률 차트 생성 중 오류: {e}")
 
-    except Exception as e:
-        st.error(f"Strategy 계산 오류: {e}")
-        import traceback
-        st.code(traceback.format_exc())
-    
-    st.markdown("---")
+except Exception as e:
+    st.error(f"Strategy 계산 오류: {e}")
+    import traceback
+    st.code(traceback.format_exc())
+
+st.markdown("---")
 
 # 국가별 상세 차트
 st.subheader("📈 국가별 상세 분석")
