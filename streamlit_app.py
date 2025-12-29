@@ -49,6 +49,15 @@ from utils.streamlit_utils import (
     create_breadth_gauge
 )
 
+# Rotation Strategy 모듈
+from MarketRegimeMonitoring.Rotation_Strategy_v2 import (
+    get_ensemble_regime_df,
+    calc_weight_top_n,
+    calc_weight,
+    score_map,
+    NON_INVESTABLE_SCORES
+)
+
 # =============================================================================
 # Page Config
 # =============================================================================
@@ -277,9 +286,229 @@ def color_regime(val):
 
 styled_df = summary_df.style.applymap(
     color_regime, 
-    subset=['Exp1 (First)', 'Exp2 (Fresh)', 'Exp3 (Smart)']
+    subset=['First', 'Fresh', 'Smart']
 )
 st.dataframe(styled_df, width='stretch', hide_index=True)
+
+st.markdown("---")
+
+# =============================================================================
+# Rotation Strategy Section (NEW)
+# =============================================================================
+st.subheader("🎯 ETF Rotation Strategy")
+
+# Strategy 유니버스
+Univ = ['USA', 'Korea', 'China', 'Japan', 'Germany', 'France', 'UK', 'India', 'Brazil']
+ticker_map = {c: COUNTRY_MAP[c]['ticker'] for c in Univ if c in COUNTRY_MAP}
+
+# Strategy Parameters
+strat_col1, strat_col2, strat_col3, strat_col4 = st.columns(4)
+with strat_col1:
+    strategy_mode = st.selectbox("Strategy Mode", ['top_n', 'baseline'], index=0)
+with strat_col2:
+    top_n_count = st.selectbox("Top N", [2, 3, 4, 5], index=1)
+with strat_col3:
+    min_score = st.selectbox("Min Score", [0.5, 1.0, 1.5, 2.5], index=1)
+with strat_col4:
+    ensemble_method = st.selectbox("Regime Method", ['first', 'fresh', 'smart', 'vote2'], index=0)
+
+# Regime/Score 데이터 계산
+try:
+    regime_df = get_ensemble_regime_df(ensemble_method)
+    score_df = regime_df.replace(score_map)
+    
+    # Weight 계산
+    if strategy_mode == 'top_n':
+        w = calc_weight_top_n(score_df, Univ, top_n_count, min_score, 'equal')
+    else:
+        w = calc_weight(score_df, Univ, 1.0, min_score, 1.0, False)
+    
+    # 현재 포지션 표시
+    if not w.empty:
+        st.markdown("#### 📍 현재 포지션")
+        
+        latest_w = w.iloc[-1]
+        latest_regime = regime_df.iloc[-1]
+        latest_score = score_df.iloc[-1]
+        latest_date = w.index[-1]
+        
+        # 투자 중인 국가만 필터
+        investing = [(c, latest_w[c], latest_regime[c], latest_score[c]) 
+                     for c in Univ if c in latest_w.index and latest_w[c] > 0.001]
+        
+        if investing:
+            pos_data = []
+            for country, weight, regime, score in investing:
+                pos_data.append({
+                    '국가': country,
+                    'Ticker': ticker_map.get(country, '-'),
+                    'Regime': regime,
+                    'Score': int(score),
+                    '비중': f"{weight:.1%}"
+                })
+            
+            pos_df = pd.DataFrame(pos_data)
+            
+            # Regime 색상 적용
+            def color_regime_pos(val):
+                colors = {
+                    '팽장': 'background-color: #2ca02c; color: white',
+                    '회복': 'background-color: #ffce30; color: black',
+                    '둔화': 'background-color: #ff7f0e; color: white',
+                    '침체': 'background-color: #d62728; color: white',
+                }
+                return colors.get(val, '')
+            
+            styled_pos = pos_df.style.applymap(color_regime_pos, subset=['Regime'])
+            
+            pos_cols = st.columns([3, 1])
+            with pos_cols[0]:
+                st.dataframe(styled_pos, hide_index=True, use_container_width=True)
+            with pos_cols[1]:
+                cash_pct = latest_w.get('CASH', 0)
+                st.metric("현금 비중", f"{cash_pct:.1%}")
+                st.caption(f"마지막 업데이트: {latest_date.strftime('%Y-%m-%d')}")
+        else:
+            st.warning("추천 포지션 없음 (전액 CASH)")
+        
+        # 포트폴리오 Pie Chart
+        with st.expander("🥧 포트폴리오 구성"):
+            pie_data = [(c, latest_w[c]) for c in Univ + ['CASH'] 
+                        if c in latest_w.index and latest_w[c] > 0.001]
+            if pie_data:
+                labels = [d[0] for d in pie_data]
+                values = [d[1] for d in pie_data]
+                colors = ['#2ca02c' if w > 0.2 else '#1f77b4' for w in values]
+                colors[-1] = '#cccccc' if labels[-1] == 'CASH' else colors[-1]
+                
+                fig_pie = go.Figure(data=[go.Pie(
+                    labels=labels, values=values,
+                    hole=0.4,
+                    marker_colors=colors,
+                    textinfo='label+percent',
+                    hovertemplate='%{label}: %{percent}<extra></extra>'
+                )])
+                fig_pie.update_layout(height=300, margin=dict(t=20, b=20, l=20, r=20))
+                st.plotly_chart(fig_pie, use_container_width=True)
+        
+        # 최근 리밸런싱 이력
+        with st.expander("📅 리밸런싱 이력 (최근 10회)"):
+            w_display = (w[Univ + ['CASH']] * 100).round(1).tail(10)
+            w_display.index = w_display.index.strftime('%Y-%m-%d')
+            st.dataframe(w_display, use_container_width=True)
+            
+            # 회전율 계산
+            turnover = (w.diff().abs().sum(axis=1) / 2).mean()
+            st.caption(f"평균 회전율: {turnover:.1%} / 리밸런싱")
+        
+        # 누적수익률 차트
+        st.markdown("#### 📈 누적 수익률 (Backtest)")
+        
+        # 백테스트 수익률 계산
+        try:
+            # 가격 데이터를 prices에서 가져옴 (이미 로딩됨)
+            w_ticker = w.rename(columns=lambda x: ticker_map.get(x, x))
+            
+            # 백테스트 시작일 = weight 데이터 시작일
+            backtest_start = w_ticker.index[0]
+            
+            # 일별 수익률 계산 (백테스트 시작일 이후만)
+            daily_ret = prices.pct_change().fillna(0)
+            daily_ret = daily_ret.loc[daily_ret.index >= backtest_start]
+            
+            # 전략 수익률 계산
+            common_idx = w_ticker.index.intersection(daily_ret.index)
+            if len(common_idx) > 0:
+                # Forward fill weights to daily
+                w_daily = w_ticker.reindex(daily_ret.index).ffill()
+                w_daily = w_daily.loc[w_daily.index >= backtest_start]
+                
+                # NaN 제거 (첫 날 이전 데이터)
+                w_daily = w_daily.dropna(how='all')
+                
+                # 포트폴리오 일별 수익률
+                port_ret = (w_daily.shift(1) * daily_ret.reindex(columns=w_daily.columns, fill_value=0)).sum(axis=1)
+                port_ret = port_ret.dropna()
+                port_ret = port_ret.loc[port_ret.index >= backtest_start]
+                
+                # 누적 수익률
+                strat_cum = (1 + port_ret).cumprod()
+                
+                # Equal Weight 벤치마크 (같은 시작일)
+                ew_tickers = [ticker_map.get(c) for c in Univ if c in ticker_map]
+                ew_ret = daily_ret[ew_tickers].mean(axis=1)
+                ew_ret = ew_ret.loc[strat_cum.index]
+                ew_cum = (1 + ew_ret).cumprod()
+                
+                # Plotly 차트
+                fig_cum = go.Figure()
+                
+                fig_cum.add_trace(go.Scatter(
+                    x=strat_cum.index, y=strat_cum.values,
+                    name=f'Strategy ({strategy_mode.upper()})',
+                    line=dict(color='#2ca02c', width=2),
+                    hovertemplate='%{x|%Y-%m-%d}<br>Return: %{y:.1%}<extra></extra>'
+                ))
+                
+                fig_cum.add_trace(go.Scatter(
+                    x=ew_cum.index, y=ew_cum.values,
+                    name='Equal Weight (BM)',
+                    line=dict(color='silver', width=2, dash='dash'),
+                    hovertemplate='%{x|%Y-%m-%d}<br>Return: %{y:.1%}<extra></extra>'
+                ))
+                
+                fig_cum.update_layout(
+                    height=350,
+                    xaxis_title='Date',
+                    yaxis_title='Cumulative Return',
+                    yaxis_tickformat='.0%',
+                    legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1),
+                    hovermode='x unified',
+                    margin=dict(t=30, b=30, l=50, r=20)
+                )
+                
+                st.plotly_chart(fig_cum, use_container_width=True)
+                
+                # 성과 지표
+                if len(strat_cum) > 252:
+                    yrs = (strat_cum.index[-1] - strat_cum.index[0]).days / 365.25
+                    total_ret = strat_cum.iloc[-1] - 1
+                    cagr = (1 + total_ret) ** (1/yrs) - 1 if yrs > 0 else 0
+                    vol = port_ret.std() * np.sqrt(252)
+                    sharpe = (cagr - 0.02) / vol if vol > 0 else 0
+                    
+                    # MDD
+                    rolling_max = strat_cum.expanding().max()
+                    drawdown = (strat_cum - rolling_max) / rolling_max
+                    mdd = drawdown.min()
+                    
+                    # EW 성과
+                    ew_total = ew_cum.iloc[-1] - 1
+                    ew_cagr = (1 + ew_total) ** (1/yrs) - 1 if yrs > 0 else 0
+                    ew_vol = ew_ret.std() * np.sqrt(252)
+                    ew_sharpe = (ew_cagr - 0.02) / ew_vol if ew_vol > 0 else 0
+                    ew_rm = ew_cum.expanding().max()
+                    ew_mdd = ((ew_cum - ew_rm) / ew_rm).min()
+                    
+                    perf_col1, perf_col2, perf_col3, perf_col4 = st.columns(4)
+                    with perf_col1:
+                        st.metric("CAGR", f"{cagr:.1%}", delta=f"{(cagr - ew_cagr)*100:.1f}%p vs BM")
+                    with perf_col2:
+                        st.metric("Sharpe", f"{sharpe:.2f}", delta=f"{sharpe - ew_sharpe:+.2f} vs BM")
+                    with perf_col3:
+                        st.metric("MDD", f"{mdd:.1%}", delta=f"{(mdd - ew_mdd)*100:.1f}%p" if mdd > ew_mdd else f"{(mdd - ew_mdd)*100:+.1f}%p")
+                    with perf_col4:
+                        st.metric("Vol", f"{vol:.1%}")
+            else:
+                st.info("가격 데이터와 매칭되는 기간이 없습니다.")
+                
+        except Exception as e:
+            st.warning(f"누적수익률 차트 생성 중 오류: {e}")
+
+except Exception as e:
+    st.error(f"Strategy 계산 오류: {e}")
+    import traceback
+    st.code(traceback.format_exc())
 
 st.markdown("---")
 
@@ -327,7 +556,7 @@ for i, country in enumerate(selected_countries):
                 precomputed=precomputed,
                 prices=prices,
                 ticker=info['ticker'],
-                method='exp2'
+                method='fresh'
             )
             if not regime_stats.empty:
                 # 바 차트
@@ -372,16 +601,14 @@ for i, country in enumerate(selected_countries):
         with col2:
             if precomputed is not None and not precomputed.empty:
                 pit_data = precomputed[['data_month', 'Level', 'Momentum', 'exp2_regime', 'trade_date']].copy()
-                pit_data = pit_data.rename(columns={'data_month': 'date', 'exp2_regime': 'ECI', 
+                pit_data = pit_data.rename(columns={'data_month': 'date', 'exp2_regime': 'Regime', 
                                                      'Level': 'Level', 'Momentum': 'Momentum'})
                 pit_data = pit_data.drop_duplicates(subset=['date'], keep='last').tail(24)
                 
                 # First values 추가
                 first_vals_map = provider._first_vals_map.get(country, {})
-                pit_data['Level_first'] = pit_data['date'].map(
-                    lambda d: first_vals_map.get(d, {}).get('Level', np.nan))
-                pit_data['Momentum_first'] = pit_data['date'].map(
-                    lambda d: first_vals_map.get(d, {}).get('Momentum', np.nan))
+                pit_data['Level_first'] = pit_data['date'].map(lambda d: first_vals_map.get(d, {}).get('Level', np.nan))
+                pit_data['Momentum_first'] = pit_data['date'].map(lambda d: first_vals_map.get(d, {}).get('Momentum', np.nan))
                 
                 fig_c2 = plot_business_clock(pit_data, "2. PIT History (Realized)", compare=True)
                 st.plotly_chart(fig_c2, use_container_width=True, config={'displayModeBar': False})
@@ -399,10 +626,8 @@ for i, country in enumerate(selected_countries):
                     current_fresh = current_fresh.tail(24).copy()
                     
                     first_vals_map = provider._first_vals_map.get(country, {})
-                    current_fresh['Level_first'] = current_fresh['date'].map(
-                        lambda d: first_vals_map.get(d, {}).get('Level', np.nan))
-                    current_fresh['Momentum_first'] = current_fresh['date'].map(
-                        lambda d: first_vals_map.get(d, {}).get('Momentum', np.nan))
+                    current_fresh['Level_first'] = current_fresh['date'].map(lambda d: first_vals_map.get(d, {}).get('Level', np.nan))
+                    current_fresh['Momentum_first'] = current_fresh['date'].map(lambda d: first_vals_map.get(d, {}).get('Momentum', np.nan))
                     
                     fig_c3 = plot_business_clock(current_fresh, "3. Current Snapshot", compare=True)
                     st.plotly_chart(fig_c3, use_container_width=True, config={'displayModeBar': False})
@@ -415,7 +640,7 @@ for i, country in enumerate(selected_countries):
         with st.expander("📋 상세 데이터 보기"):
             # 발표일 정보 포함 컬럼 선택
             cols_to_show = ['trade_date', 'realtime_start', 'data_month', 
-                           'exp1_regime', 'exp2_regime', 'exp3_regime',
+                           'first_regime', 'fresh_regime', 'smart_regime',
                            'expected_next_data', 'expected_next_release', 'is_missing']
             
             available_cols = [c for c in cols_to_show if c in precomputed.columns]
@@ -438,9 +663,9 @@ for i, country in enumerate(selected_countries):
                 'trade_date': '거래일',
                 'realtime_start': '발표일',
                 'data_month': '데이터월',
-                'exp1_regime': 'Exp1',
-                'exp2_regime': 'Exp2',
-                'exp3_regime': 'Exp3',
+                'first_regime': 'First',
+                'fresh_regime': 'Fresh',
+                'smart_regime': 'Smart',
                 'expected_next_data': '다음예상데이터',
                 'expected_next_release': '다음예상발표일',
                 'is_missing': 'Skipped'

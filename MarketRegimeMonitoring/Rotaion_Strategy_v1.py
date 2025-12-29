@@ -270,4 +270,4 @@ if __name__ == '__main__':
     print((w[Univ + ['CASH']] * 100).round(1).tail(5).to_string())
     
     # 7-9. GUI 리포트 (선택)
-    # gdu.report(ret.to_frame('Strategy'))
+    gdu.report(ret.to_frame('Strategy'))

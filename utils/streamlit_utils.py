@@ -139,8 +139,7 @@ REGIME_COLORS = {
     '침체': '#d62728',
     'Cash': '#ffb347',
     'Half': '#9467bd',
-    'Skipped': '#f0f0f0'
-}
+    'Skipped': '#f0f0f0'}
 
 REGIME_LABELS = {
     '팽창': 'Expansion',
@@ -149,8 +148,7 @@ REGIME_LABELS = {
     '침체': 'Contraction',
     'Cash': 'Cash',
     'Half': 'Half',
-    'Skipped': 'Skipped'
-}
+    'Skipped': 'Skipped'}
 
 
 def plot_cumulative_returns(
@@ -202,26 +200,26 @@ def plot_cumulative_returns(
         secondary_y=False
     )
     
-    # Exp1, Exp2, Exp3 전략 수익률
-    colors = {'exp1': '#1f77b4', 'exp2': '#2ca02c', 'exp3': '#d62728'}
-    labels = {'exp1': 'Exp1 (First)', 'exp2': 'Exp2 (Fresh)', 'exp3': 'Exp3 (Smart)'}
+    colors = {'first': '#1f77b4', 'fresh': '#2ca02c', 'smart': '#d62728'}
+    labels = {'first': 'First', 'fresh': 'Fresh', 'smart': 'Smart'}
     
     regime_weights = {
         '팽창': 2.0, '회복': 1.0, '둔화': 0.5, '침체': 0.0,
         'Cash': 0.0, 'Half': 1.0, 'Skipped': 0.0
     }
     
-    for exp_col in ['exp1', 'exp2', 'exp3']:
-        regime_col = f'{exp_col}_regime'
-        if regime_col not in precomputed.columns:
+    for method_name in ['first', 'fresh', 'smart']:
+        # Map method name to actual column in precomputed
+        actual_col = {'first': 'exp1_regime', 'fresh': 'exp2_regime', 'smart': 'exp3_regime'}[method_name]
+        if actual_col not in precomputed.columns:
             continue
         
-        sub = precomputed[['trade_date', regime_col]].copy()
+        sub = precomputed[['trade_date', actual_col]].copy()
         sub = sub.set_index('trade_date').reindex(bench.index).ffill()
-        sub[regime_col] = sub[regime_col].fillna('Cash')
+        sub[actual_col] = sub[actual_col].fillna('Cash')
         
         # Weight 계산
-        sub['weight'] = sub[regime_col].map(lambda x: regime_weights.get(x, 0))
+        sub['weight'] = sub[actual_col].map(lambda x: regime_weights.get(x, 0))
         
         st_ret = (1 + sub['weight'] * bench).cumprod()
         st_ret = st_ret / st_ret.iloc[0]
@@ -229,9 +227,9 @@ def plot_cumulative_returns(
         fig.add_trace(
             go.Scatter(
                 x=st_ret.index, y=st_ret.values,
-                name=labels[exp_col],
-                line=dict(color=colors[exp_col], width=2),
-                hovertemplate='%{x|%Y-%m-%d}<br>Return: %{y:.2%}<extra>' + labels[exp_col] + '</extra>'
+                name=labels[method_name],
+                line=dict(color=colors[method_name], width=2),
+                hovertemplate='%{x|%Y-%m-%d}<br>Return: %{y:.2%}<extra>' + labels[method_name] + '</extra>'
             ),
             secondary_y=False
         )
@@ -303,23 +301,24 @@ def plot_regime_strip(
     
     timeline_data = []
     
-    # Exp1, Exp2, Exp3 스트립
-    for exp_col in ['exp1_regime', 'exp2_regime', 'exp3_regime']:
-        if exp_col not in precomputed.columns:
+    for method_name in ['first', 'fresh', 'smart']:
+        # Map to actual column in precomputed
+        actual_col = {'first': 'exp1_regime', 'fresh': 'exp2_regime', 'smart': 'exp3_regime'}[method_name]
+        if actual_col not in precomputed.columns:
             continue
         
-        exp_name = exp_col.replace('_regime', '').upper()
-        sub = precomputed[['trade_date', exp_col]].copy()
-        sub = sub.dropna(subset=[exp_col])
+        label_name = method_name.upper()  # FIRST, FRESH, SMART
+        sub = precomputed[['trade_date', actual_col]].copy()
+        sub = sub.dropna(subset=[actual_col])
         if sub.empty:
             continue
         
         sub['next_date'] = sub['trade_date'].shift(-1).fillna(pd.Timestamp.now())
         
         for _, row in sub.iterrows():
-            regime = row[exp_col]
+            regime = row[actual_col]
             timeline_data.append({
-                'Task': exp_name,
+                'Task': label_name,
                 'Start': row['trade_date'],
                 'Finish': row['next_date'],
                 'Regime': regime,
@@ -405,7 +404,7 @@ def plot_regime_strip(
         height=250,
         showlegend=True,
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        yaxis=dict(categoryorder='array', categoryarray=['Crisis-Index', 'EXP3', 'EXP2', 'EXP1'])
+        yaxis=dict(categoryorder='array', categoryarray=['Crisis-Index', 'SMART', 'FRESH', 'FIRST'])
     )
     
     return fig
@@ -604,18 +603,18 @@ def create_regime_summary_table(provider, countries: List[str]) -> pd.DataFrame:
     """
     rows = []
     for country in countries:
-        exp1 = provider.get_regime(country, pd.Timestamp.now(), method='first')
-        exp2 = provider.get_regime(country, pd.Timestamp.now(), method='fresh')
-        exp3 = provider.get_regime(country, pd.Timestamp.now(), method='smart')
+        first = provider.get_regime(country, pd.Timestamp.now(), method='first')
+        fresh = provider.get_regime(country, pd.Timestamp.now(), method='fresh')
+        smart = provider.get_regime(country, pd.Timestamp.now(), method='smart')
         
         rows.append({
             'Country': country,
-            'Exp1 (First)': exp1['regime'] if exp1 else 'N/A',
-            'Exp2 (Fresh)': exp2['regime'] if exp2 else 'N/A',
-            'Exp3 (Smart)': exp3['regime'] if exp3 else 'N/A',
-            'Data Month': exp2['data_month'].strftime('%Y-%m') if exp2 and exp2.get('data_month') else 'N/A',
-            'Level': f"{exp2['Level']:.2f}" if exp2 and pd.notna(exp2.get('Level')) else 'N/A',
-            'Momentum': f"{exp2['Momentum']:.2f}" if exp2 and pd.notna(exp2.get('Momentum')) else 'N/A'
+            'First': first['regime'] if first else 'N/A',
+            'Fresh': fresh['regime'] if fresh else 'N/A',
+            'Smart': smart['regime'] if smart else 'N/A',
+            'Data Month': fresh['data_month'].strftime('%Y-%m') if fresh and fresh.get('data_month') else 'N/A',
+            'Level': f"{fresh['Level']:.2f}" if fresh and pd.notna(fresh.get('Level')) else 'N/A',
+            'Momentum': f"{fresh['Momentum']:.2f}" if fresh and pd.notna(fresh.get('Momentum')) else 'N/A'
         })
     
     return pd.DataFrame(rows)
@@ -1568,7 +1567,7 @@ def calculate_regime_statistics(precomputed: pd.DataFrame, prices: pd.DataFrame,
         precomputed: provider._precomputed_regimes
         prices: 주가 DataFrame
         ticker: 티커
-        method: 'exp1', 'exp2', 'exp3'
+        method: 'first', 'fresh', 'smart'
     
     Returns:
         DataFrame with regime statistics
