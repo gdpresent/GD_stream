@@ -63,13 +63,22 @@ SCORE_MAP = {
 # Non-investable scores (명시적 마스킹)
 NON_INVESTABLE_SCORES = [-1, -2, -3]  # Cash, Half, Skipped
 
-def calc_strategy_weight(regime_df, univ, top_n=3, min_score=1.0):
+def calc_strategy_weight(regime_df, univ, target_top_n=5, min_score=1.0, max_countries=6):
     """
-    Score 기반 Top N 투자 비중 계산 (v2 Production Logic)
+    Score 기반 투자 비중 계산 (v3 Equal Split Logic)
     
-    - Non-investable (Cash, Half, Skipped) 명시적 제외
-    - min_score 초과인 국가만 투자 대상
-    - Top N 국가에 동일비중 배분
+    핵심 개선: 동점 시 모든 국가를 포함하여 임의성 제거
+    
+    Args:
+        target_top_n: 목표 상위 N개 (동점 시 더 많아질 수 있음)
+        min_score: 최소 Score (회복=2 이상만 투자)
+        max_countries: 최대 투자 국가 수 (분산 과다 방지)
+    
+    로직:
+    1. Score > min_score 인 국가 필터
+    2. Score 순으로 정렬
+    3. target_top_n번째 Score와 동점인 국가는 모두 포함
+    4. max_countries 초과 시에만 컷오프
     """
     score_df = regime_df.replace(SCORE_MAP)
     
@@ -86,13 +95,26 @@ def calc_strategy_weight(regime_df, univ, top_n=3, min_score=1.0):
             w_row = {c: 0.0 for c in univ}
             w_row['CASH'] = 1.0
         else:
-            # Score 상위 N개 선택
-            sorted_countries = sorted(valid.items(), key=lambda x: x[1], reverse=True)
-            top_countries = [c for c, s in sorted_countries[:top_n]]
+            # Score 순으로 정렬
+            sorted_list = sorted(valid.items(), key=lambda x: x[1], reverse=True)
+            
+            if len(sorted_list) <= target_top_n:
+                # 국가 수가 target 이하면 전부 포함
+                selected = [c for c, s in sorted_list]
+            else:
+                # target_top_n번째 Score 확인 (cutoff)
+                cutoff_score = sorted_list[target_top_n - 1][1]
+                
+                # cutoff_score 이상인 국가 모두 포함 (동점 해결)
+                selected = [c for c, s in sorted_list if s >= cutoff_score]
+                
+                # 너무 많으면 max_countries로 제한
+                if len(selected) > max_countries:
+                    selected = selected[:max_countries]
             
             # 동일 비중 배분
-            w_per_country = 1.0 / len(top_countries)
-            w_row = {c: w_per_country if c in top_countries else 0.0 for c in univ}
+            w_per_country = 1.0 / len(selected)
+            w_row = {c: w_per_country if c in selected else 0.0 for c in univ}
             w_row['CASH'] = 0.0
         
         weights.append(w_row)
@@ -362,15 +384,16 @@ st.markdown("---")
 # Rotation Strategy Section
 # =============================================================================
 st.subheader("🎯 ETF Rotation Strategy")
-st.caption("📊 Top 3 국가 동일비중 | 회복 이상(Score > 1) | First Value 기준")
+st.caption("📊 v3 Equal Split | Target Top 5 (동점 시 모두 포함) | 회복 이상(Score > 1) | First Value")
 
 # Strategy 유니버스
 Univ = ['USA', 'Korea', 'China', 'Japan', 'Germany', 'France', 'UK', 'India', 'Brazil']
 ticker_map = {c: COUNTRY_MAP[c]['ticker'] for c in Univ if c in COUNTRY_MAP}
 
-# 최적 전략 파라미터 (고정)
-top_n_count = 3
-min_score = 1.0  # 회복(Score=2) 이상만 투자
+# v3 전략 파라미터 (Equal Split)
+target_top_n = 5       # 목표 상위 N개 (동점 시 더 많아질 수 있음)
+min_score = 1.0        # 회복(Score=2) 이상만 투자
+max_countries = 6      # 최대 투자 국가 수
 ensemble_method = 'first'  # First Value 기준
 
 # Regime 데이터 수집 (이미 로드된 provider 사용)
@@ -391,8 +414,8 @@ try:
         regime_df = regime_df.ffill().dropna(how='all')
         score_df = regime_df.replace(SCORE_MAP)
         
-        # Weight 계산
-        w = calc_strategy_weight(regime_df, Univ, top_n_count, min_score)
+        # Weight 계산 (v3 Equal Split)
+        w = calc_strategy_weight(regime_df, Univ, target_top_n, min_score, max_countries)
     
         # 현재 포지션 표시
         if not w.empty:
