@@ -60,14 +60,26 @@ SCORE_MAP = {
     'Skipped': -3
 }
 
+# Non-investable scores (명시적 마스킹)
+NON_INVESTABLE_SCORES = [-1, -2, -3]  # Cash, Half, Skipped
+
 def calc_strategy_weight(regime_df, univ, top_n=3, min_score=1.0):
-    """Score 기반 Top N 투자 비중 계산"""
+    """
+    Score 기반 Top N 투자 비중 계산 (v2 Production Logic)
+    
+    - Non-investable (Cash, Half, Skipped) 명시적 제외
+    - min_score 초과인 국가만 투자 대상
+    - Top N 국가에 동일비중 배분
+    """
     score_df = regime_df.replace(SCORE_MAP)
     
     weights = []
     for idx, row in score_df.iterrows():
-        # min_score 초과인 국가만 선택
-        valid = {c: row[c] for c in univ if c in row.index and row[c] > min_score}
+        # Step 1: Non-investable 제외 + min_score 초과 필터
+        valid = {c: row[c] for c in univ 
+                 if c in row.index 
+                 and row[c] not in NON_INVESTABLE_SCORES 
+                 and row[c] > min_score}
         
         if not valid:
             # 모두 min_score 이하이면 100% 현금
