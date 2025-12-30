@@ -9,7 +9,7 @@ try:
     import GD_utils as gdu
 except ImportError:
     gdu = None  # Streamlit Cloud 환경
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Union, Callable
 from datetime import datetime
 warnings.filterwarnings('ignore')
 
@@ -162,7 +162,8 @@ class RegimeProvider:
                  fred_api_key: Optional[str] = None,
                  auto_load: bool = True,
                  cache_dir: Optional[str] = None,
-                 use_cache: bool = True):
+                 use_cache: bool = True,
+                 progress_callback: Optional[Callable[[str, int, int, str], None]] = None):
         """
         초기화
         
@@ -172,11 +173,13 @@ class RegimeProvider:
             auto_load: True이면 초기화 시 바로 데이터 로딩
             cache_dir: 캐시 디렉토리 경로. None이면 기본 경로(./cache) 사용.
             use_cache: True이면 일자별 캐시 사용 (같은 날은 API 호출 생략)
+            progress_callback: 진행 상황 콜백 함수 (country, current, total, source) -> None
         """
         self.fred_api_key = fred_api_key or '3b56e6990c8059acf92d34b23d723fe5'
         self.countries = countries or list(COUNTRY_MAP.keys())
         self.cache_dir = cache_dir or DEFAULT_CACHE_DIR
         self.use_cache = use_cache
+        self.progress_callback = progress_callback
         
         # 캐시 저장소
         self._raw_data: Dict[str, pd.DataFrame] = {}
@@ -227,20 +230,27 @@ class RegimeProvider:
         """모든 국가 데이터 로딩 (캐시 우선, 없으면 API 호출)"""
         from fredapi import Fred
         fred = None  # 필요할 때만 초기화
+        total_countries = len(self.countries)
         
-        for country in self.countries:
+        for i, country in enumerate(self.countries):
             if country not in COUNTRY_MAP:
                 print(f"[WARN] Unknown country: {country}")
                 continue
             
             info = COUNTRY_MAP[country]
             df_all = None
+            source = 'loading'
+            
+            # Progress callback 호출 - 로딩 시작
+            if self.progress_callback:
+                self.progress_callback(country, i + 1, total_countries, 'loading')
             
             # 1. 캐시에서 로드 시도
             if self.use_cache:
                 df_all = self._load_from_cache(country)
                 if df_all is not None:
                     print(f"[CACHE] {country} loaded from cache")
+                    source = 'cache'
             
             # 2. 캐시에 없으면 API 호출
             if df_all is None:
@@ -249,6 +259,7 @@ class RegimeProvider:
                         fred = Fred(api_key=self.fred_api_key)
                     
                     print(f"[API] {country} fetching from FRED...")
+                    source = 'api'
                     df_all = fred.get_series_all_releases(info['fred'])
                     df_all['value'] = pd.to_numeric(df_all['value'], errors='coerce')
                     df_all = df_all.dropna(subset=['value'])

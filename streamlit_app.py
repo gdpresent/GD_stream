@@ -151,65 +151,90 @@ st.markdown("""
 # Data Loading (Cached)
 # =============================================================================
 @st.cache_resource(ttl=3600)  # 1시간 캐시
-def load_provider(countries: tuple, use_cache: bool) -> RegimeProvider:
-    """RegimeProvider 로딩 (캐싱)"""
+def load_provider_cached(countries: tuple, use_cache: bool) -> RegimeProvider:
+    """RegimeProvider 로딩 (캐싱) - 콜백 없이"""
     provider = RegimeProvider(countries=list(countries), use_cache=use_cache)
+    return provider
+
+def load_provider_with_progress(countries: tuple, use_cache: bool, 
+                                  progress_bar, detail_text, start_time) -> RegimeProvider:
+    """RegimeProvider 로딩 (진행 표시 포함)"""
+    import time
+    total = len(countries)
+    
+    def progress_callback(country: str, current: int, total: int, source: str):
+        elapsed = time.time() - start_time
+        minutes = int(elapsed // 60)
+        seconds = int(elapsed % 60)
+        
+        source_emoji = "💾" if source == 'cache' else "🌐" if source == 'api' else "📍"
+        detail_text.markdown(f"{source_emoji} `{country}` 로딩 중... ({current}/{total}) - ⏱️ {minutes}분 {seconds}초 경과")
+        progress_bar.progress(int((current / total) * 50))
+    
+    provider = RegimeProvider(
+        countries=list(countries), 
+        use_cache=use_cache,
+        progress_callback=progress_callback
+    )
     return provider
 
 # 데이터 로딩 (스플래시 스타일)
 loading_container = st.empty()
 
-with loading_container.container():
-    st.markdown("""
-    <div style="text-align: center; padding: 3rem 1rem;">
-        <h1 style="font-size: 3rem; margin-bottom: 0.5rem;">�</h1>
-        <h2 style="color: #1f77b4; margin-bottom: 0.5rem;">Market Regime Dashboard</h2>
-        <p style="color: #666; margin-bottom: 2rem;">데이터를 불러오는 중입니다...</p>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-    detail_text = st.empty()
-    
-    import time
-    start_time = time.time()
-    
-    # Step 1: 데이터 로딩 (국가별 진행 표시)
-    total_countries = len(selected_countries)
-    
-    status_text.markdown("🌍 **FRED에서 데이터 로딩 중...**")
-    
-    for i, country in enumerate(selected_countries):
+# 캐시 체크: 이미 캐시된 경우 빠른 로딩
+cache_key = f"provider_{hash(tuple(selected_countries))}_{use_cache}"
+is_first_load = cache_key not in st.session_state
+
+if is_first_load:
+    with loading_container.container():
+        st.markdown("""
+        <div style="text-align: center; padding: 3rem 1rem;">
+            <h1 style="font-size: 3rem; margin-bottom: 0.5rem;">📊</h1>
+            <h2 style="color: #1f77b4; margin-bottom: 0.5rem;">Market Regime Dashboard</h2>
+            <p style="color: #666; margin-bottom: 2rem;">데이터를 불러오는 중입니다...</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        detail_text = st.empty()
+        
+        import time
+        start_time = time.time()
+        
+        # Step 1: FRED 데이터 로딩 (콜백 포함)
+        status_text.markdown("🌍 **FRED에서 데이터 로딩 중...**")
+        provider = load_provider_with_progress(tuple(selected_countries), use_cache, 
+                                                progress_bar, detail_text, start_time)
+        st.session_state[cache_key] = provider
+        progress_bar.progress(50)
+        
+        # Step 2: 가격 데이터 로딩
         elapsed = time.time() - start_time
         minutes = int(elapsed // 60)
         seconds = int(elapsed % 60)
         
-        detail_text.markdown(f"📍 `{country}` 로딩 중... ({i+1}/{total_countries}) - ⏱️ {minutes}분 {seconds}초 경과")
-        progress_bar.progress(int((i / total_countries) * 40))
+        status_text.markdown("💹 **Yahoo Finance에서 가격 데이터 로딩 중...**")
+        detail_text.markdown(f"📊 주가 지수 데이터 수집 중... - ⏱️ {minutes}분 {seconds}초 경과")
+        
+        prices = provider._load_price_data()
+        progress_bar.progress(100)
+        
+        elapsed = time.time() - start_time
+        minutes = int(elapsed // 60)
+        seconds = int(elapsed % 60)
+        
+        status_text.markdown(f"✅ **로딩 완료!** (총 {minutes}분 {seconds}초)")
+        detail_text.empty()
     
-    provider = load_provider(tuple(selected_countries), use_cache)
-    progress_bar.progress(50)
-    
-    # Step 2: 가격 데이터 로딩
-    elapsed = time.time() - start_time
-    minutes = int(elapsed // 60)
-    seconds = int(elapsed % 60)
-    
-    status_text.markdown("💹 **Yahoo Finance에서 가격 데이터 로딩 중...**")
-    detail_text.markdown(f"📊 주가 지수 데이터 수집 중... - ⏱️ {minutes}분 {seconds}초 경과")
-    
+    # 로딩 완료 후 로딩 화면 제거
+    loading_container.empty()
+else:
+    # 캐시된 경우 빠른 로딩
+    provider = st.session_state[cache_key]
     prices = provider._load_price_data()
-    progress_bar.progress(100)
-    
-    elapsed = time.time() - start_time
-    minutes = int(elapsed // 60)
-    seconds = int(elapsed % 60)
-    
-    status_text.markdown(f"✅ **로딩 완료!** (총 {minutes}분 {seconds}초)")
-    detail_text.empty()
 
-# 로딩 완료 후 로딩 화면 제거
+# 로딩 화면 제거 (안전장치)
 loading_container.empty()
 
 # =============================================================================
@@ -273,7 +298,7 @@ ref_date_str = reference_date.strftime('%Y-%m-%d') if reference_date else ''
 with idx_tab1:
     if not index_df.empty:
         styled_index = style_returns_dataframe(index_df)
-        st.dataframe(styled_index, width='stretch', hide_index=True)
+        st.dataframe(styled_index, use_container_width=True, hide_index=True)
         st.caption(f"📅 기준일: {ref_date_str} (미국 시장 종가 기준)")
     else:
         st.info("지수 데이터를 불러오는 중...")
@@ -317,7 +342,7 @@ styled_df = summary_df.style.applymap(
     color_regime, 
     subset=['First', 'Fresh', 'Smart']
 )
-st.dataframe(styled_df, width='stretch', hide_index=True)
+st.dataframe(styled_df, use_container_width=True, hide_index=True)
 
 st.markdown("---")
 
@@ -325,19 +350,16 @@ st.markdown("---")
 # Rotation Strategy Section
 # =============================================================================
 st.subheader("🎯 ETF Rotation Strategy")
+st.caption("📊 Top 3 국가 동일비중 | 회복 이상(Score > 1) | First Value 기준")
 
 # Strategy 유니버스
 Univ = ['USA', 'Korea', 'China', 'Japan', 'Germany', 'France', 'UK', 'India', 'Brazil']
 ticker_map = {c: COUNTRY_MAP[c]['ticker'] for c in Univ if c in COUNTRY_MAP}
 
-# Strategy Parameters
-strat_col1, strat_col2, strat_col3 = st.columns(3)
-with strat_col1:
-    top_n_count = st.selectbox("Top N", [2, 3, 4, 5], index=1)
-with strat_col2:
-    min_score = st.selectbox("Min Score", [0.5, 1.0, 1.5, 2.5], index=1)
-with strat_col3:
-    ensemble_method = st.selectbox("Regime Method", ['first', 'fresh', 'smart'], index=0)
+# 최적 전략 파라미터 (고정)
+top_n_count = 3
+min_score = 1.0  # 회복(Score=2) 이상만 투자
+ensemble_method = 'first'  # First Value 기준
 
 # Regime 데이터 수집 (이미 로드된 provider 사용)
 try:
@@ -482,7 +504,7 @@ try:
                 
                     fig_cum.add_trace(go.Scatter(
                         x=strat_cum.index, y=strat_cum.values,
-                        name=f'Strategy ({strategy_mode.upper()})',
+                        name=f'Strategy ({ensemble_method.upper()})',
                         line=dict(color='#2ca02c', width=2),
                         hovertemplate='%{x|%Y-%m-%d}<br>Return: %{y:.1%}<extra></extra>'
                     ))
@@ -709,7 +731,7 @@ for i, country in enumerate(selected_countries):
             }
             display_df = display_df.rename(columns={k: v for k, v in col_rename.items() if k in display_df.columns})
             
-            st.dataframe(display_df, width='stretch', hide_index=True)
+            st.dataframe(display_df, use_container_width=True, hide_index=True)
 
 # =============================================================================
 # Fear & Greed (맨 아래 작게 배치)
