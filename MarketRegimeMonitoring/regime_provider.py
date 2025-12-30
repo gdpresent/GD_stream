@@ -90,7 +90,7 @@ def calculate_eci(df: pd.DataFrame) -> Optional[pd.DataFrame]:
         df: 'date', 'value' 컬럼이 있는 DataFrame
         
     Returns:
-        Level, Momentum, ECI가 추가된 DataFrame (또는 None)
+        Level, Momentum, Acceleration, ECI, ECI_Physics가 추가된 DataFrame (또는 None)
     """
     if df is None or len(df) < 13:
         return None
@@ -109,18 +109,44 @@ def calculate_eci(df: pd.DataFrame) -> Optional[pd.DataFrame]:
     # 지표 계산
     temp['ROLLINGAVG'] = temp['value'].rolling(window=12, min_periods=12).mean()
     temp['Level'] = temp['value'] - temp['ROLLINGAVG']
-    temp['Momentum'] = temp['Level'].diff()
+    temp['Momentum'] = temp['Level'].diff()  # 1차 미분 (Velocity)
+    temp['Acceleration'] = temp['Momentum'].diff()  # 2차 미분 (Acceleration)
 
+    # 기존 ECI (Level-Momentum 기반)
     conditions = [
         (temp['Level'] > 0) & (temp['Momentum'] > 0),
         (temp['Level'] > 0) & (temp['Momentum'] <= 0),
         (temp['Level'] <= 0) & (temp['Momentum'] > 0)
     ]
     temp['ECI'] = np.select(conditions, ['팽창', '둔화', '회복'], default='침체')
+    
+    # 새로운 ECI_Physics (Level + Velocity + Acceleration 기반)
+    # | Level | Velocity | Acceleration | 해석 | 투자 신호 |
+    # | >0    | +        | +            | 팽창 가속 | Strong Buy |
+    # | >0    | +        | -            | 팽창 감속 | Hold |
+    # | >0    | -        | +            | 둔화 감속 | Watch |
+    # | >0    | -        | -            | 둔화 가속 | Exit |
+    # | <0    | +        | +            | 회복 가속 | Buy |
+    # | <0    | +        | -            | 회복 감속 | Caution |
+    # | <0    | -        | +            | 침체 바닥 | Early Entry |
+    # | <0    | -        | -            | 침체 가속 | Avoid |
+    
+    conditions_physics = [
+        (temp['Level'] > 0) & (temp['Momentum'] > 0) & (temp['Acceleration'] > 0),   # 팽창 가속
+        (temp['Level'] > 0) & (temp['Momentum'] > 0) & (temp['Acceleration'] <= 0),  # 팽창 감속
+        (temp['Level'] > 0) & (temp['Momentum'] <= 0) & (temp['Acceleration'] > 0),  # 둔화 감속
+        (temp['Level'] > 0) & (temp['Momentum'] <= 0) & (temp['Acceleration'] <= 0), # 둔화 가속
+        (temp['Level'] <= 0) & (temp['Momentum'] > 0) & (temp['Acceleration'] > 0),  # 회복 가속
+        (temp['Level'] <= 0) & (temp['Momentum'] > 0) & (temp['Acceleration'] <= 0), # 회복 감속
+        (temp['Level'] <= 0) & (temp['Momentum'] <= 0) & (temp['Acceleration'] > 0), # 침체 바닥
+    ]
+    choices_physics = ['팽창++', '팽창+', '둔화-', '둔화--', '회복++', '회복+', '침체-']
+    temp['ECI_Physics'] = np.select(conditions_physics, choices_physics, default='침체--')
 
     # 계산 불가능 구간 NaN 처리
-    mask_nan = temp['Level'].isna() | temp['Momentum'].isna()
+    mask_nan = temp['Level'].isna() | temp['Momentum'].isna() | temp['Acceleration'].isna()
     temp.loc[mask_nan, 'ECI'] = np.nan
+    temp.loc[mask_nan, 'ECI_Physics'] = np.nan
 
     return temp.reset_index()
 def get_pit_snapshot(raw_df: pd.DataFrame, obs_date: pd.Timestamp) -> Optional[pd.DataFrame]:
@@ -463,6 +489,7 @@ class RegimeProvider:
                 e1_reg = 'Skipped'
                 e2_reg = 'Skipped'
                 e3_reg = 'Skipped'
+                e4_reg = 'Skipped'
             else:
                 # Exp1
                 if pd.isna(m_regime_first):
@@ -496,6 +523,29 @@ class RegimeProvider:
                     e3_reg = 'Half' if m_regime_fresh == '팽창' else 'Cash'
                 else:
                     e3_reg = m_regime_fresh
+                
+                # Exp4: Physics-based (Level + Velocity + Acceleration)
+                # ECI_Physics 활용하여 세분화된 국면 판단
+                m_regime_physics = latest.get('ECI_Physics', np.nan)
+                if pd.isna(m_regime_physics):
+                    e4_reg = m_regime_fresh  # Fallback to Fresh
+                else:
+                    # Physics 국면을 투자 신호로 변환
+                    # 팽창++, 팽창+ → 팽창
+                    # 회복++, 침체- → 회복 (침체 바닥은 Early Entry)
+                    # 회복+, 둔화- → 둔화
+                    # 둔화--, 침체-- → 침체
+                    physics_to_regime = {
+                        '팽창++': '팽창',   # Strong Buy
+                        '팽창+': '팽창',    # Hold/Buy
+                        '회복++': '회복',   # Buy
+                        '침체-': '회복',    # Early Entry (침체 바닥)
+                        '회복+': '둔화',    # Caution (회복 감속)
+                        '둔화-': '둔화',    # Watch (둔화 감속)
+                        '둔화--': '침체',   # Exit (둔화 가속)
+                        '침체--': '침체',   # Avoid
+                    }
+                    e4_reg = physics_to_regime.get(m_regime_physics, m_regime_fresh)
             
             # 예상 다음 데이터 월 계산
             next_expected_data_month = m_date + pd.DateOffset(months=1)
@@ -560,8 +610,10 @@ class RegimeProvider:
                     'exp1_regime': e1_reg,
                     'exp2_regime': e2_reg,
                     'exp3_regime': e3_reg,
+                    'exp4_regime': e4_reg,
                     'Level': latest['Level'],
-                    'Momentum': latest['Momentum']
+                    'Momentum': latest['Momentum'],
+                    'Acceleration': latest.get('Acceleration', np.nan)
                 })
         
         if logs:

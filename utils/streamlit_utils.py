@@ -200,17 +200,42 @@ def plot_cumulative_returns(
         secondary_y=False
     )
     
-    colors = {'first': '#1f77b4', 'fresh': '#2ca02c', 'smart': '#d62728'}
-    labels = {'first': 'First', 'fresh': 'Fresh', 'smart': 'Smart'}
+    colors = {'first': '#1f77b4', 'fresh': '#2ca02c', 'smart': '#d62728', 'persistence': '#9467bd'}
+    labels = {'first': 'First', 'fresh': 'Fresh', 'smart': 'Smart', 'persistence': 'Persistence'}
     
     regime_weights = {
         '팽창': 2.0, '회복': 1.0, '둔화': 0.5, '침체': 0.0,
         'Cash': 0.0, 'Half': 1.0, 'Skipped': 0.0
     }
     
-    for method_name in ['first', 'fresh', 'smart']:
+    # Persistence를 위한 지속성 계산 함수
+    def calc_persistence_bonus(regime_series, min_persist=3, bonus=0.05):
+        """국면 지속성 보너스 계산"""
+        persist_count = 0
+        prev_regime = None
+        bonuses = []
+        
+        for regime in regime_series:
+            if regime == prev_regime and regime in ['팽창', '회복']:
+                persist_count += 1
+            else:
+                persist_count = 1
+            
+            if persist_count >= min_persist:
+                bonuses.append(persist_count * bonus)
+            else:
+                bonuses.append(0)
+            prev_regime = regime
+        
+        return bonuses
+    
+    for method_name in ['first', 'fresh', 'smart', 'persistence']:
         # Map method name to actual column in precomputed
-        actual_col = {'first': 'exp1_regime', 'fresh': 'exp2_regime', 'smart': 'exp3_regime'}[method_name]
+        if method_name == 'persistence':
+            actual_col = 'exp1_regime'  # Persistence는 First 기반
+        else:
+            actual_col = {'first': 'exp1_regime', 'fresh': 'exp2_regime', 'smart': 'exp3_regime'}[method_name]
+        
         if actual_col not in precomputed.columns:
             continue
         
@@ -219,7 +244,14 @@ def plot_cumulative_returns(
         sub[actual_col] = sub[actual_col].fillna('Cash')
         
         # Weight 계산
-        sub['weight'] = sub[actual_col].map(lambda x: regime_weights.get(x, 0))
+        if method_name == 'persistence':
+            # Persistence: 지속성 보너스 적용
+            bonuses = calc_persistence_bonus(sub[actual_col].tolist())
+            sub['weight'] = sub[actual_col].map(lambda x: regime_weights.get(x, 0))
+            sub['weight'] = sub['weight'] + bonuses
+            sub['weight'] = sub['weight'].clip(upper=2.0)  # 최대 2.0
+        else:
+            sub['weight'] = sub[actual_col].map(lambda x: regime_weights.get(x, 0))
         
         st_ret = (1 + sub['weight'] * bench).cumprod()
         st_ret = st_ret / st_ret.iloc[0]
@@ -228,7 +260,7 @@ def plot_cumulative_returns(
             go.Scatter(
                 x=st_ret.index, y=st_ret.values,
                 name=labels[method_name],
-                line=dict(color=colors[method_name], width=2),
+                line=dict(color=colors[method_name], width=2 if method_name != 'persistence' else 3),
                 hovertemplate='%{x|%Y-%m-%d}<br>Return: %{y:.2%}<extra>' + labels[method_name] + '</extra>'
             ),
             secondary_y=False
@@ -301,13 +333,18 @@ def plot_regime_strip(
     
     timeline_data = []
     
-    for method_name in ['first', 'fresh', 'smart']:
+    for method_name in ['first', 'fresh', 'smart', 'persistence']:
         # Map to actual column in precomputed
-        actual_col = {'first': 'exp1_regime', 'fresh': 'exp2_regime', 'smart': 'exp3_regime'}[method_name]
+        if method_name == 'persistence':
+            actual_col = 'exp1_regime'  # Persistence는 First 기반
+            label_name = 'PERSISTENCE'
+        else:
+            actual_col = {'first': 'exp1_regime', 'fresh': 'exp2_regime', 'smart': 'exp3_regime'}[method_name]
+            label_name = method_name.upper()  # FIRST, FRESH, SMART
+        
         if actual_col not in precomputed.columns:
             continue
         
-        label_name = method_name.upper()  # FIRST, FRESH, SMART
         sub = precomputed[['trade_date', actual_col]].copy()
         sub = sub.dropna(subset=[actual_col])
         if sub.empty:
@@ -401,10 +438,10 @@ def plot_regime_strip(
         title="국면 스트립 차트",
         xaxis_title="Date",
         yaxis_title="",
-        height=250,
+        height=300,
         showlegend=True,
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        yaxis=dict(categoryorder='array', categoryarray=['Crisis-Index', 'SMART', 'FRESH', 'FIRST'])
+        yaxis=dict(categoryorder='array', categoryarray=['Crisis-Index', 'SMART', 'FRESH', 'FIRST', 'PERSISTENCE'])
     )
     
     return fig
