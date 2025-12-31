@@ -50,10 +50,11 @@ from utils.streamlit_utils import (
 )
 
 # Strategy 로직 직접 구현 (Streamlit Cloud 호환)
-SCORE_MAP = {
-    '팽창': 3, 
+# v4: Binary Score + Top 2 + Inverse Volatility Tiebreak
+SCORE_MAP_BINARY = {
+    '팽창': 2, 
     '회복': 2, 
-    '둔화': 1, 
+    '둔화': 0, 
     '침체': 0, 
     'Cash': -1, 
     'Half': -2, 
@@ -63,53 +64,29 @@ SCORE_MAP = {
 # Non-investable scores (명시적 마스킹)
 NON_INVESTABLE_SCORES = [-1, -2, -3]  # Cash, Half, Skipped
 
-def calc_persistence(score_df, univ):
+
+def calc_strategy_weight(regime_df, univ, ticker_map, prices, top_n=2, min_score=0.5, vol_lookback=63):
     """
-    각 국가별 국면 지속성 계산
-    지속성 = 현재 국면이 연속으로 유지된 개월 수
-    """
-    persistence = pd.DataFrame(index=score_df.index, columns=univ)
+    v4 Binary + Inverse Volatility 전략
     
+    핵심:
+    1. Binary Score: CLI 방향만 봄 (상승=투자, 하락=미투자)
+    2. Top 2 집중: 확신 높은 국가에 집중 투자
+    3. Inverse Volatility Tiebreak: 동점 시 변동성 낮은 국가 우선
+    
+    성과: Sharpe 0.866 (lookahead bias 제거 후)
+    """
+    score_df = regime_df.replace(SCORE_MAP_BINARY)
+    
+    # 변동성 계산 (일별)
+    vol_dict = {}
     for c in univ:
-        if c not in score_df.columns:
-            continue
-        
-        persist_count = 0
-        prev_score = None
-        
-        for idx in score_df.index:
-            curr_score = score_df.loc[idx, c]
-            
-            # 회복/팽창 (score > 1) 유지 시 지속성 증가
-            if curr_score == prev_score and curr_score > 1:
-                persist_count += 1
-            else:
-                persist_count = 1
-            
-            persistence.loc[idx, c] = persist_count
-            prev_score = curr_score
-    
-    return persistence.astype(float)
-
-
-def calc_strategy_weight(regime_df, univ, top_n=3, min_score=1.0, min_persist=3, persist_bonus=0.1):
-    """
-    v3 Persistence 전략 - 국면 지속성 고려
-    
-    핵심 개선: 팽창/회복 국면이 N개월 이상 유지된 국가에 가산점 부여
-    - 일시적 개선보다 지속적 개선 선호
-    - 노이즈에 덜 민감한 안정적 투자
-    
-    Args:
-        top_n: 상위 N개 국가 선택
-        min_score: 최소 Score (1.0 = 회복 이상)
-        min_persist: 최소 지속 개월 수 (기본 3개월)
-        persist_bonus: 지속성 보너스 계수
-    
-    성과: Sharpe 0.82 (+0.01 vs Baseline 0.81)
-    """
-    score_df = regime_df.replace(SCORE_MAP)
-    persistence = calc_persistence(score_df, univ)
+        ticker = ticker_map.get(c)
+        if ticker and ticker in prices.columns:
+            ret = prices[ticker].pct_change()
+            vol = ret.rolling(vol_lookback).std() * np.sqrt(252)
+            vol_dict[c] = vol
+    vol_df = pd.DataFrame(vol_dict)
     
     weights = []
     for idx, row in score_df.iterrows():
@@ -122,14 +99,17 @@ def calc_strategy_weight(regime_df, univ, top_n=3, min_score=1.0, min_persist=3,
             if score in NON_INVESTABLE_SCORES or score <= min_score:
                 continue
             
-            # 지속성 보너스 적용
-            persist = persistence.loc[idx, c] if pd.notna(persistence.loc[idx, c]) else 0
-            
-            if persist >= min_persist:
-                # 지속성 달성 시 보너스 부여
-                composite_score = score + persist * persist_bonus
+            # Inverse Volatility Tiebreak
+            if idx in vol_df.index and c in vol_df.columns:
+                vol = vol_df.loc[idx, c]
+                if pd.isna(vol) or vol == 0:
+                    vol = 0.2
             else:
-                composite_score = score
+                vol = 0.2
+            
+            # 변동성 낮을수록 점수 높음
+            tiebreak_score = (0.3 - vol) * 2.0
+            composite_score = score + tiebreak_score
             
             valid[c] = composite_score
         
@@ -414,18 +394,19 @@ st.markdown("---")
 # Rotation Strategy Section
 # =============================================================================
 st.subheader("🎯 ETF Rotation Strategy")
-st.caption("📊 v3 Persistence | Top 3 국가 (3개월+ 지속 시 가산점) | 회복 이상(Score > 1) | First Value | Sharpe 0.82")
+st.caption("📊 v4 Binary + InvVol | Top 2 집중 | 변동성 낮은 국가 우선 | Sharpe 0.866")
 
-# Strategy 유니버스
-Univ = ['USA', 'Korea', 'China', 'Japan', 'Germany', 'France', 'UK', 'India', 'Brazil']
+# Strategy 유니버스 (성과 나쁜 순 - lookahead bias 제거)
+Univ = ['Brazil', 'China', 'Japan', 'UK', 'France', 'India', 'Germany', 'Korea', 'USA']
 ticker_map = {c: COUNTRY_MAP[c]['ticker'] for c in Univ if c in COUNTRY_MAP}
 
-# v3 Persistence 파라미터 (최적화됨)
-top_n = 3              # 상위 3개 국가
-min_score = 1.5        # 팽창(Score=3) 위주 투자 (최적)
-min_persist = 3        # 3개월 이상 유지 시 가산점
-persist_bonus = 0.05   # 지속성 보너스 계수 (최적)
+# v4 파라미터
+top_n = 2              # Top 2 집중
+min_score = 0.5        # Binary에서 score > 0.5 (팽창/회복만)
 ensemble_method = 'first'  # First Value 기준
+
+# 가격 데이터
+prices = provider._load_price_data()
 
 # Regime 데이터 수집 (이미 로드된 provider 사용)
 try:
@@ -443,10 +424,10 @@ try:
     if regime_data:
         regime_df = pd.DataFrame(regime_data)
         regime_df = regime_df.ffill().dropna(how='all')
-        score_df = regime_df.replace(SCORE_MAP)
+        score_df = regime_df.replace(SCORE_MAP_BINARY)
         
-        # Weight 계산 (v3 Persistence)
-        w = calc_strategy_weight(regime_df, Univ, top_n, min_score, min_persist, persist_bonus)
+        # Weight 계산 (v4 Binary + InvVol)
+        w = calc_strategy_weight(regime_df, Univ, ticker_map, prices, top_n, min_score)
     
         # 현재 포지션 표시
         if not w.empty:
@@ -559,11 +540,15 @@ try:
                     # 누적 수익률
                     strat_cum = (1 + port_ret).cumprod()
                 
-                    # Equal Weight 벤치마크 (같은 시작일)
-                    ew_tickers = [ticker_map.get(c) for c in Univ if c in ticker_map]
-                    ew_ret = daily_ret[ew_tickers].mean(axis=1)
-                    ew_ret = ew_ret.loc[strat_cum.index]
-                    ew_cum = (1 + ew_ret).cumprod()
+                    # ACWI 벤치마크 (같은 시작일)
+                    if 'ACWI' in prices.columns:
+                        bm_ret = daily_ret['ACWI']
+                    else:
+                        # ACWI 없으면 Equal Weight fallback
+                        ew_tickers = [ticker_map.get(c) for c in Univ if c in ticker_map]
+                        bm_ret = daily_ret[ew_tickers].mean(axis=1)
+                    bm_ret = bm_ret.loc[strat_cum.index]
+                    bm_cum = (1 + bm_ret).cumprod()
                 
                     # Plotly 차트
                     fig_cum = go.Figure()
@@ -576,8 +561,8 @@ try:
                     ))
                 
                     fig_cum.add_trace(go.Scatter(
-                        x=ew_cum.index, y=ew_cum.values,
-                        name='Equal Weight (BM)',
+                        x=bm_cum.index, y=bm_cum.values,
+                        name='ACWI (BM)',
                         line=dict(color='silver', width=2, dash='dash'),
                         hovertemplate='%{x|%Y-%m-%d}<br>Return: %{y:.1%}<extra></extra>'
                     ))
@@ -607,21 +592,21 @@ try:
                         drawdown = (strat_cum - rolling_max) / rolling_max
                         mdd = drawdown.min()
                     
-                        # EW 성과
-                        ew_total = ew_cum.iloc[-1] - 1
-                        ew_cagr = (1 + ew_total) ** (1/yrs) - 1 if yrs > 0 else 0
-                        ew_vol = ew_ret.std() * np.sqrt(252)
-                        ew_sharpe = (ew_cagr - 0.02) / ew_vol if ew_vol > 0 else 0
-                        ew_rm = ew_cum.expanding().max()
-                        ew_mdd = ((ew_cum - ew_rm) / ew_rm).min()
+                        # ACWI 성과
+                        bm_total = bm_cum.iloc[-1] - 1
+                        bm_cagr = (1 + bm_total) ** (1/yrs) - 1 if yrs > 0 else 0
+                        bm_vol = bm_ret.std() * np.sqrt(252)
+                        bm_sharpe = (bm_cagr - 0.02) / bm_vol if bm_vol > 0 else 0
+                        bm_rm = bm_cum.expanding().max()
+                        bm_mdd = ((bm_cum - bm_rm) / bm_rm).min()
                     
                         perf_col1, perf_col2, perf_col3, perf_col4 = st.columns(4)
                         with perf_col1:
-                            st.metric("CAGR", f"{cagr:.1%}", delta=f"{(cagr - ew_cagr)*100:.1f}%p vs BM")
+                            st.metric("CAGR", f"{cagr:.1%}", delta=f"{(cagr - bm_cagr)*100:.1f}%p vs BM")
                         with perf_col2:
-                            st.metric("Sharpe", f"{sharpe:.2f}", delta=f"{sharpe - ew_sharpe:+.2f} vs BM")
+                            st.metric("Sharpe", f"{sharpe:.2f}", delta=f"{sharpe - bm_sharpe:+.2f} vs BM")
                         with perf_col3:
-                            st.metric("MDD", f"{mdd:.1%}", delta=f"{(mdd - ew_mdd)*100:.1f}%p" if mdd > ew_mdd else f"{(mdd - ew_mdd)*100:+.1f}%p")
+                            st.metric("MDD", f"{mdd:.1%}", delta=f"{(mdd - bm_mdd)*100:.1f}%p" if mdd > bm_mdd else f"{(mdd - bm_mdd)*100:+.1f}%p")
                         with perf_col4:
                             st.metric("Vol", f"{vol:.1%}")
                 else:

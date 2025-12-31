@@ -1443,6 +1443,7 @@ if __name__ == '__main__':
     provider = RegimeProvider(use_cache=True)
 
     # 대시보드 생성 (Crisis-Index 포함)
-    provider.generate_dashboard(open_browser=True)
+    # provider.generate_dashboard(open_browser=True)
 
     # AA=provider._precomputed_regimes['Korea']
+    # AA=provider._precomputed_regimes['USA']
