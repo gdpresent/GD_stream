@@ -189,6 +189,7 @@ class RegimeProvider:
                  auto_load: bool = True,
                  cache_dir: Optional[str] = None,
                  use_cache: bool = True,
+                 cache_date: Optional[str] = None,
                  progress_callback: Optional[Callable[[str, int, int, str], None]] = None):
         """
         초기화
@@ -199,12 +200,14 @@ class RegimeProvider:
             auto_load: True이면 초기화 시 바로 데이터 로딩
             cache_dir: 캐시 디렉토리 경로. None이면 기본 경로(./cache) 사용.
             use_cache: True이면 일자별 캐시 사용 (같은 날은 API 호출 생략)
+            cache_date: 특정 캐시 날짜 지정 (예: '2025-12-31'). None이면 오늘 날짜 사용.
             progress_callback: 진행 상황 콜백 함수 (country, current, total, source) -> None
         """
         self.fred_api_key = fred_api_key or '3b56e6990c8059acf92d34b23d723fe5'
         self.countries = countries or list(COUNTRY_MAP.keys())
         self.cache_dir = cache_dir or DEFAULT_CACHE_DIR
         self.use_cache = use_cache
+        self.cache_date = cache_date  # 특정 캐시 날짜 (None이면 오늘)
         self.progress_callback = progress_callback
         
         # 캐시 저장소
@@ -225,9 +228,31 @@ class RegimeProvider:
             self._load_all_data()
     
     def _get_cache_path(self, country: str) -> str:
-        """오늘 날짜 기준 캐시 파일 경로 반환"""
-        today = datetime.now().strftime('%Y-%m-%d')
-        return os.path.join(self.cache_dir, f'{country}_{today}.parquet')
+        """캐시 파일 경로 반환 (cache_date 우선, 없으면 오늘 날짜)"""
+        if self.cache_date:
+            date_str = self.cache_date
+        else:
+            date_str = datetime.now().strftime('%Y-%m-%d')
+        return os.path.join(self.cache_dir, f'{country}_{date_str}.parquet')
+    
+    def get_available_cache_dates(self) -> List[str]:
+        """캐시 디렉토리에서 사용 가능한 날짜 목록 반환 (최신순)"""
+        if not os.path.exists(self.cache_dir):
+            return []
+        
+        files = os.listdir(self.cache_dir)
+        dates = set()
+        for f in files:
+            if f.endswith('.parquet'):
+                # USA_2025-12-31.parquet -> 2025-12-31
+                parts = f.replace('.parquet', '').split('_')
+                if len(parts) >= 2:
+                    date_str = parts[-1]
+                    # YYYY-MM-DD 형식 검증
+                    if len(date_str) == 10 and date_str[4] == '-' and date_str[7] == '-':
+                        dates.add(date_str)
+        
+        return sorted(dates, reverse=True)  # 최신순
     
     def _load_from_cache(self, country: str) -> Optional[pd.DataFrame]:
         """캐시 파일에서 데이터 로드 (오늘 날짜 기준)"""

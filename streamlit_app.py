@@ -161,7 +161,39 @@ if not selected_countries:
     st.stop()
 
 # 캐시 옵션
-use_cache = st.sidebar.checkbox("💾 캐시 사용", value=False, help="체크하면 오늘 날짜 기준 캐시 사용 (API 호출 감소)")
+use_cache = st.sidebar.checkbox("💾 캐시 사용", value=True, help="체크하면 캐시된 데이터 사용 (API 호출 감소)")
+
+# 캐시 날짜 선택 (캐시 사용 시에만 표시)
+selected_cache_date = None
+if use_cache:
+    import os
+    cache_dir = os.path.join(os.path.dirname(__file__), 'MarketRegimeMonitoring', 'cache')
+    
+    available_dates = []
+    if os.path.exists(cache_dir):
+        files = os.listdir(cache_dir)
+        dates_set = set()
+        for f in files:
+            if f.endswith('.parquet'):
+                parts = f.replace('.parquet', '').split('_')
+                if len(parts) >= 2:
+                    date_str = parts[-1]
+                    if len(date_str) == 10 and date_str[4] == '-' and date_str[7] == '-':
+                        dates_set.add(date_str)
+        available_dates = sorted(dates_set, reverse=True)
+    
+    if available_dates:
+        cache_date_options = ["오늘 (최신 API)"] + available_dates
+        cache_date_selection = st.sidebar.selectbox(
+            "📅 캐시 날짜 선택",
+            options=cache_date_options,
+            index=0,
+            help="과거 캐시 데이터로 전환 가능 (OECD revision 전 데이터 확인용)"
+        )
+        selected_cache_date = None if cache_date_selection == "오늘 (최신 API)" else cache_date_selection
+    else:
+        st.sidebar.info("저장된 캐시 없음 (첫 실행 시 자동 생성)")
+
 
 # 새로고침 버튼
 st.sidebar.markdown("---")
@@ -195,12 +227,12 @@ st.markdown("""
 # Data Loading (Cached)
 # =============================================================================
 @st.cache_resource(ttl=3600)  # 1시간 캐시
-def load_provider_cached(countries: tuple, use_cache: bool) -> RegimeProvider:
+def load_provider_cached(countries: tuple, use_cache: bool, cache_date: str = None) -> RegimeProvider:
     """RegimeProvider 로딩 (캐싱) - 콜백 없이"""
-    provider = RegimeProvider(countries=list(countries), use_cache=use_cache)
+    provider = RegimeProvider(countries=list(countries), use_cache=use_cache, cache_date=cache_date)
     return provider
 
-def load_provider_with_progress(countries: tuple, use_cache: bool, 
+def load_provider_with_progress(countries: tuple, use_cache: bool, cache_date: str,
                                   progress_bar, detail_text, start_time) -> RegimeProvider:
     """RegimeProvider 로딩 (진행 표시 포함)"""
     import time
@@ -218,6 +250,7 @@ def load_provider_with_progress(countries: tuple, use_cache: bool,
     provider = RegimeProvider(
         countries=list(countries), 
         use_cache=use_cache,
+        cache_date=cache_date,
         progress_callback=progress_callback
     )
     return provider
@@ -226,7 +259,7 @@ def load_provider_with_progress(countries: tuple, use_cache: bool,
 loading_container = st.empty()
 
 # 캐시 체크: 이미 캐시된 경우 빠른 로딩
-cache_key = f"provider_{hash(tuple(selected_countries))}_{use_cache}"
+cache_key = f"provider_{hash(tuple(selected_countries))}_{use_cache}_{selected_cache_date}"
 is_first_load = cache_key not in st.session_state
 
 if is_first_load:
@@ -248,7 +281,7 @@ if is_first_load:
         
         # Step 1: FRED 데이터 로딩 (콜백 포함)
         status_text.markdown("🌍 **FRED에서 데이터 로딩 중...**")
-        provider = load_provider_with_progress(tuple(selected_countries), use_cache, 
+        provider = load_provider_with_progress(tuple(selected_countries), use_cache, selected_cache_date,
                                                 progress_bar, detail_text, start_time)
         st.session_state[cache_key] = provider
         progress_bar.progress(50)
@@ -285,6 +318,14 @@ loading_container.empty()
 # Main Content
 # =============================================================================
 st.markdown('<div class="main-header">📊 Market Regime Dashboard</div>', unsafe_allow_html=True)
+
+# 캐시 날짜 표시
+if selected_cache_date:
+    st.info(f"📅 **캐시 데이터 기준일: {selected_cache_date}** (과거 시점 데이터)")
+else:
+    today_str = datetime.now().strftime('%Y-%m-%d')
+    st.caption(f"📅 데이터 기준일: {today_str} (최신)")
+
 st.markdown("---")
 
 # =============================================================================
@@ -394,7 +435,7 @@ st.markdown("---")
 # Rotation Strategy Section
 # =============================================================================
 st.subheader("🎯 ETF Rotation Strategy")
-st.caption("📊 v4 Binary + InvVol | Top 2 집중 | 변동성 낮은 국가 우선 | Sharpe 0.866")
+st.caption("📊 v4: BiInvVol | Top 2 집중 | 변동성 낮은 국가 우선")
 
 # Strategy 유니버스 (성과 나쁜 순 - lookahead bias 제거)
 Univ = ['Brazil', 'China', 'Japan', 'UK', 'France', 'India', 'Germany', 'Korea', 'USA']
